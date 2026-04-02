@@ -1,0 +1,287 @@
+import math
+from django.db import connection
+from django.db.models import Q
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from .models import Card, Rule
+from .scryfall import get_set_names, get_mana_map
+
+
+def _build_where(search='', set_code='', rarity='', card_type='', cmc='', cmc_op='=', date_from='', date_to='', colors=''):
+    where  = ['image_url_normal IS NOT NULL']
+    params = []
+
+    if search:
+        where.append('(name LIKE %s OR oracle_text LIKE %s)')
+        params += [f'%{search}%', f'%{search}%']
+    if set_code:
+        where.append('set_code = %s')
+        params.append(set_code)
+    if rarity:
+        where.append('rarity = %s')
+        params.append(rarity)
+    if card_type:
+        where.append('type_line LIKE %s')
+        params.append(f'%{card_type}%')
+    if cmc != '' and cmc is not None:
+        op = cmc_op if cmc_op in ('=', '<=', '>=', '<', '>') else '='
+        where.append(f'cmc {op} %s')
+        params.append(float(cmc))
+    if date_from:
+        where.append('release_date >= %s')
+        params.append(date_from)
+    if date_to:
+        where.append('release_date <= %s')
+        params.append(date_to)
+
+    if colors:
+        for col in colors.split(','):
+            col = col.strip()
+            if col:
+                where.append('mana_cost LIKE %s')
+                params.append(f'%{col}%')
+    return ' AND '.join(where), params
+
+
+def _fetch_grouped(where_sql, params, limit, offset):
+    sql = f"""
+        SELECT name,
+               MAX(mana_cost)        AS mana_cost,
+               MAX(cmc)              AS cmc,
+               MAX(type_line)        AS type_line,
+               MAX(oracle_text)      AS oracle_text,
+               MAX(rarity)           AS rarity,
+               SUBSTRING_INDEX(GROUP_CONCAT(image_url_normal ORDER BY release_date DESC), ',', 1) AS image_url_normal,
+               GROUP_CONCAT(DISTINCT set_code ORDER BY release_date DESC) AS set_codes,
+               MAX(release_date)     AS latest_release,
+               MIN(release_date)     AS first_release
+        FROM cards WHERE {where_sql}
+        GROUP BY name ORDER BY MAX(release_date) DESC
+        LIMIT %s OFFSET %s
+    """
+    with connection.cursor() as cur:
+        cur.execute(sql, params + [limit, offset])
+        cols = [c[0] for c in cur.description]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+
+def _count_grouped(where_sql, params):
+    with connection.cursor() as cur:
+        cur.execute(f'SELECT COUNT(DISTINCT name) FROM cards WHERE {where_sql}', params)
+        return cur.fetchone()[0]
+
+
+def _enrich(raw_cards, set_names):
+    cards = []
+    for c in raw_cards:
+        set_codes = (c['set_codes'] or '').split(',')
+        sets = []
+        for code in set_codes:
+            info = set_names.get(code, {})
+            sets.append({
+                'code':         code,
+                'name':         info.get('name', code),
+                'released_at':  info.get('released_at', ''),
+                'icon_svg_uri': info.get('icon_svg_uri',
+                    f'https://svgs.scryfall.io/sets/{code.lower()}.svg'),
+            })
+        cards.append({
+            'name':             c['name'],
+            'mana_cost':        c['mana_cost'] or '',
+            'cmc':              float(c['cmc']) if c['cmc'] is not None else None,
+            'type_line':        c['type_line'] or '',
+            'oracle_text':      c['oracle_text'] or '',
+            'rarity':           c['rarity'] or 'common',
+            'image_url_normal': c['image_url_normal'],
+            'sets':             sets,
+            'latest_release':   str(c['latest_release']) if c['latest_release'] else None,
+            'first_release':    str(c['first_release']) if c['first_release'] else None,
+        })
+    return cards
+
+
+class CardListView(APIView):
+    def get(self, request):
+        p         = request.query_params
+        search    = p.get('q', '').strip()
+        set_code  = p.get('set', '').strip()
+        rarity    = p.get('rarity', '').strip()
+        card_type = p.get('type', '').strip()
+        cmc       = p.get('cmc', '').strip()
+        cmc_op    = p.get('cmc_op', '=').strip()
+        date_from = p.get('date_from', '').strip()
+        date_to   = p.get('date_to', '').strip()
+        page      = max(1, int(p.get('page', 1)))
+        page_size = min(48, max(1, int(p.get('page_size', 24))))
+
+        colors    = p.get('colors', '').strip()
+        where_sql, params = _build_where(search, set_code, rarity, card_type, cmc, cmc_op, date_from, date_to, colors)
+        total  = _count_grouped(where_sql, params)
+        offset = (page - 1) * page_size
+
+        set_names = get_set_names()
+        raw   = _fetch_grouped(where_sql, params, page_size, offset)
+        cards = _enrich(raw, set_names)
+
+        return Response({
+            'count':       total,
+            'total_pages': math.ceil(total / page_size) if total else 1,
+            'page':        page,
+            'page_size':   page_size,
+            'results':     cards,
+        })
+
+
+class CardImagesView(APIView):
+    def get(self, request):
+        name = request.query_params.get('name', '').strip()
+        if not name:
+            return Response({'images': []})
+
+        rows = Card.objects.filter(name=name, image_url_normal__isnull=False) \
+            .values('set_code', 'image_url_normal', 'release_date',
+                    'mana_cost', 'cmc', 'type_line', 'oracle_text', 'rarity') \
+            .order_by('-release_date')
+
+        set_names = get_set_names()
+        images = []
+        for c in rows:
+            info = set_names.get(c['set_code'], {})
+            images.append({
+                'set_code':    c['set_code'],
+                'set_name':    info.get('name', c['set_code']),
+                'released_at': info.get('released_at', str(c['release_date']) if c['release_date'] else ''),
+                'icon_svg_uri': info.get('icon_svg_uri',
+                    f"https://svgs.scryfall.io/sets/{c['set_code'].lower()}.svg"),
+                'image_url':   c['image_url_normal'],
+                'mana_cost':   c['mana_cost'] or '',
+                'cmc':         float(c['cmc']) if c['cmc'] is not None else None,
+                'type_line':   c['type_line'] or '',
+                'oracle_text': c['oracle_text'] or '',
+                'rarity':      c['rarity'] or 'common',
+            })
+
+        return Response({'name': name, 'images': images})
+
+
+class CollectionsView(APIView):
+    def get(self, request):
+        with connection.cursor() as cur:
+            cur.execute("""
+                SELECT set_code, COUNT(*) as total, MIN(release_date) as release_date
+                FROM cards WHERE image_url_normal IS NOT NULL
+                GROUP BY set_code ORDER BY release_date DESC
+            """)
+            rows = cur.fetchall()
+
+        set_names = get_set_names()
+        sets = []
+        for set_code, count, release_date in rows:
+            info = set_names.get(set_code, {})
+            sets.append({
+                'code':         set_code,
+                'name':         info.get('name', set_code),
+                'released_at':  info.get('released_at', str(release_date) if release_date else ''),
+                'icon_svg_uri': info.get('icon_svg_uri',
+                    f'https://svgs.scryfall.io/sets/{set_code.lower()}.svg'),
+                'card_count':   count,
+            })
+
+        by_year = {}
+        for s in sets:
+            year = s['released_at'][:4] if s['released_at'] else 'Desconhecido'
+            by_year.setdefault(year, []).append(s)
+
+        years = [{'year': y, 'sets': sl} for y, sl in sorted(by_year.items(), reverse=True)]
+        return Response({'total_sets': len(sets), 'years': years})
+
+
+class RulesView(APIView):
+    CHAPTER_NAMES = {
+        '1': 'Game Concepts',        '2': 'Parts of a Card',
+        '3': 'Card Types',           '4': 'Zones',
+        '5': 'Turn Structure',       '6': 'Spells, Abilities & Effects',
+        '7': 'Additional Rules',     '8': 'Multiplayer Rules',
+        '9': 'Casual Variants',
+    }
+
+    def get(self, request):
+        search  = request.query_params.get('q', '').strip()
+        chapter = request.query_params.get('chapter', '').strip()
+        qs = Rule.objects.all()
+        if search:
+            qs = qs.filter(Q(rule_text__icontains=search) | Q(rule_number__icontains=search))
+        if chapter:
+            qs = qs.filter(chapter_id=chapter)
+
+        chapters = {}
+        for rule in qs:
+            ch = rule.chapter_id or rule.rule_number.split('.')[0]
+            if ch not in chapters:
+                chapters[ch] = {'number': ch, 'title': self.CHAPTER_NAMES.get(ch, f'Capítulo {ch}'), 'rules': []}
+            chapters[ch]['rules'].append({'id': rule.id, 'rule_number': rule.rule_number, 'rule_text': rule.rule_text})
+
+        chapters_list = sorted(chapters.values(), key=lambda x: int(x['number']) if x['number'].isdigit() else 999)
+        return Response({'total': qs.count(), 'search': search, 'chapters': chapters_list})
+
+
+@api_view(['GET'])
+def mana_symbols(request):
+    return Response({'symbols': get_mana_map()})
+
+
+@api_view(['GET'])
+def sets_filter_list(request):
+    set_names = get_set_names()
+    db_codes  = Card.objects.filter(image_url_normal__isnull=False) \
+        .values_list('set_code', flat=True).distinct()
+    sets = []
+    for code in db_codes:
+        info = set_names.get(code, {})
+        sets.append({'code': code, 'name': info.get('name', code), 'released_at': info.get('released_at', '')})
+    sets.sort(key=lambda x: x['released_at'], reverse=True)
+    return Response({'sets': sets})
+
+
+@api_view(['GET'])
+def card_types_list(request):
+    """Retorna os tipos únicos disponíveis no banco."""
+    with connection.cursor() as cur:
+        cur.execute("""
+            SELECT DISTINCT
+                CASE
+                    WHEN type_line LIKE '%Creature%'     THEN 'Creature'
+                    WHEN type_line LIKE '%Planeswalker%' THEN 'Planeswalker'
+                    WHEN type_line LIKE '%Instant%'      THEN 'Instant'
+                    WHEN type_line LIKE '%Sorcery%'      THEN 'Sorcery'
+                    WHEN type_line LIKE '%Enchantment%'  THEN 'Enchantment'
+                    WHEN type_line LIKE '%Artifact%'     THEN 'Artifact'
+                    WHEN type_line LIKE '%Land%'         THEN 'Land'
+                    WHEN type_line LIKE '%Battle%'       THEN 'Battle'
+                    ELSE 'Other'
+                END as main_type
+            FROM cards
+            WHERE image_url_normal IS NOT NULL
+            ORDER BY main_type
+        """)
+        types = [row[0] for row in cur.fetchall() if row[0] != 'Other']
+    return Response({'types': types})
+
+
+@api_view(['GET'])
+def card_prices(request):
+    import json as _json, urllib.request as _req, urllib.parse as _parse
+    name = request.query_params.get('name', '').strip()
+    if not name:
+        return Response({'prices': None})
+    try:
+        encoded = _parse.urlencode({'exact': name}).replace('+', '%20')
+        url = f"https://api.scryfall.com/cards/named?{encoded}"
+        req = _req.Request(url, headers={'User-Agent': 'MTGNexus/1.0'})
+        with _req.urlopen(req, timeout=8) as resp:
+            data = _json.loads(resp.read())
+        prices = {k: v for k, v in data.get('prices', {}).items() if v is not None}
+        return Response({'prices': prices, 'name': name})
+    except Exception as e:
+        return Response({'prices': None, 'error': str(e)})

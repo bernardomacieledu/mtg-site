@@ -1,0 +1,297 @@
+"""
+auth_views.py — Autenticação JWT + CRUD de decks e coleções por usuário
+"""
+import jwt
+import datetime
+import hashlib
+import os
+from functools import wraps
+
+from django.contrib.auth import authenticate
+from django.contrib.auth.hashers import make_password, check_password
+from django.conf import settings
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+
+from .models import User, UserDeck, UserCollection
+
+JWT_SECRET  = getattr(settings, 'JWT_SECRET', 'mtg-nexus-jwt-secret-change-in-production')
+JWT_ALGO    = 'HS256'
+JWT_EXPIRY  = 7  # days
+
+
+# ── JWT helpers ───────────────────────────────────────────────────────────────
+
+def make_token(user):
+    payload = {
+        'uid':      user.id,
+        'username': user.username,
+        'exp':      datetime.datetime.utcnow() + datetime.timedelta(days=JWT_EXPIRY),
+        'iat':      datetime.datetime.utcnow(),
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGO)
+
+
+def decode_token(token):
+    try:
+        return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO])
+    except jwt.ExpiredSignatureError:
+        return None
+    except jwt.InvalidTokenError:
+        return None
+
+
+def jwt_required(f):
+    """Decorator: extrai e valida o JWT do header Authorization."""
+    @wraps(f)
+    def wrapper(request, *args, **kwargs):
+        auth = request.headers.get('Authorization', '')
+        if not auth.startswith('Bearer '):
+            return Response({'error': 'Token não fornecido.'}, status=401)
+        payload = decode_token(auth[7:])
+        if not payload:
+            return Response({'error': 'Token inválido ou expirado.'}, status=401)
+        try:
+            request.user_obj = User.objects.get(id=payload['uid'])
+        except User.DoesNotExist:
+            return Response({'error': 'Usuário não encontrado.'}, status=401)
+        return f(request, *args, **kwargs)
+    return wrapper
+
+
+# ── Auth endpoints ────────────────────────────────────────────────────────────
+
+@api_view(['POST'])
+def register(request):
+    """POST /api/auth/register/ — cria conta."""
+    username = request.data.get('username', '').strip()
+    email    = request.data.get('email', '').strip()
+    password = request.data.get('password', '')
+
+    if not username or not password:
+        return Response({'error': 'Username e senha são obrigatórios.'}, status=400)
+    if len(password) < 6:
+        return Response({'error': 'Senha deve ter no mínimo 6 caracteres.'}, status=400)
+    if User.objects.filter(username=username).exists():
+        return Response({'error': 'Username já está em uso.'}, status=400)
+    if email and User.objects.filter(email=email).exists():
+        return Response({'error': 'Email já cadastrado.'}, status=400)
+
+    user = User.objects.create(
+        username=username,
+        email=email or f'{username}@local',
+        password=make_password(password),
+    )
+
+    token = make_token(user)
+    return Response({
+        'token':    token,
+        'username': user.username,
+        'uid':      user.id,
+    }, status=201)
+
+
+@api_view(['POST'])
+def login(request):
+    """POST /api/auth/login/ — autentica e retorna JWT."""
+    username = request.data.get('username', '').strip()
+    password = request.data.get('password', '')
+
+    if not username or not password:
+        return Response({'error': 'Credenciais inválidas.'}, status=400)
+
+    try:
+        user = User.objects.get(username=username)
+    except User.DoesNotExist:
+        return Response({'error': 'Usuário ou senha incorretos.'}, status=401)
+
+    if not check_password(password, user.password):
+        return Response({'error': 'Usuário ou senha incorretos.'}, status=401)
+
+    token = make_token(user)
+    return Response({
+        'token':    token,
+        'username': user.username,
+        'uid':      user.id,
+    })
+
+
+@api_view(['GET'])
+@jwt_required
+def me(request):
+    """GET /api/auth/me/ — retorna dados do usuário logado."""
+    user = request.user_obj
+    return Response({
+        'uid':      user.id,
+        'username': user.username,
+        'email':    user.email,
+        'decks_count':       user.decks.count(),
+        'collections_count': user.collections.count(),
+    })
+
+
+# ── Decks ─────────────────────────────────────────────────────────────────────
+
+@api_view(['GET'])
+@jwt_required
+def list_decks(request):
+    """GET /api/auth/decks/ — lista decks do usuário."""
+    decks = request.user_obj.decks.all()
+    return Response([{
+        'id':         d.id,
+        'name':       d.name,
+        'colors':     d.colors,
+        'total_cards': d.total_cards,
+        'avg_cmc':    d.avg_cmc,
+        'commander':  d.commander_json,
+        'not_found':  d.not_found,
+        'active_imgs': d.active_imgs,
+        'updated_at': d.updated_at.isoformat(),
+    } for d in decks])
+
+
+@api_view(['POST'])
+@jwt_required
+def create_deck(request):
+    """POST /api/auth/decks/ — cria ou atualiza deck."""
+    data = request.data
+    deck_id = data.get('id')
+
+    fields = {
+        'name':            data.get('name', 'Deck sem nome'),
+        'raw_text':        data.get('raw_text', ''),
+        'cards_json':      data.get('cards', []),
+        'categorized_json': data.get('categorized', {}),
+        'commander_json':  data.get('commander'),
+        'legendaries_json': data.get('legendaries', []),
+        'colors':          data.get('colors', []),
+        'total_cards':     data.get('total_cards', 0),
+        'avg_cmc':         data.get('avg_cmc', 0),
+        'not_found':       data.get('not_found', []),
+        'active_imgs':     data.get('active_imgs', {}),
+    }
+
+    if deck_id:
+        try:
+            deck = UserDeck.objects.get(id=deck_id, user=request.user_obj)
+            for k, v in fields.items():
+                setattr(deck, k, v)
+            deck.save()
+        except UserDeck.DoesNotExist:
+            return Response({'error': 'Deck não encontrado.'}, status=404)
+    else:
+        deck = UserDeck.objects.create(user=request.user_obj, **fields)
+
+    return Response({'id': deck.id, 'name': deck.name, 'updated_at': deck.updated_at.isoformat()})
+
+
+@api_view(['GET'])
+@jwt_required
+def get_deck(request, deck_id):
+    """GET /api/auth/decks/<id>/ — retorna deck completo."""
+    try:
+        d = UserDeck.objects.get(id=deck_id, user=request.user_obj)
+    except UserDeck.DoesNotExist:
+        return Response({'error': 'Deck não encontrado.'}, status=404)
+
+    return Response({
+        'id':          d.id,
+        'name':        d.name,
+        'raw_text':    d.raw_text,
+        'cards':       d.cards_json,
+        'categorized': d.categorized_json,
+        'commander':   d.commander_json,
+        'legendaries': d.legendaries_json,
+        'colors':      d.colors,
+        'total_cards': d.total_cards,
+        'avg_cmc':     d.avg_cmc,
+        'not_found':   d.not_found,
+        'active_imgs': d.active_imgs,
+        'updated_at':  d.updated_at.isoformat(),
+    })
+
+
+@api_view(['DELETE'])
+@jwt_required
+def delete_deck(request, deck_id):
+    """DELETE /api/auth/decks/<id>/"""
+    try:
+        UserDeck.objects.get(id=deck_id, user=request.user_obj).delete()
+    except UserDeck.DoesNotExist:
+        return Response({'error': 'Deck não encontrado.'}, status=404)
+    return Response({'deleted': True})
+
+
+@api_view(['PATCH'])
+@jwt_required
+def update_deck_imgs(request, deck_id):
+    """PATCH /api/auth/decks/<id>/imgs/ — atualiza imagens ativas."""
+    try:
+        deck = UserDeck.objects.get(id=deck_id, user=request.user_obj)
+        deck.active_imgs = {**deck.active_imgs, **request.data.get('active_imgs', {})}
+        deck.save(update_fields=['active_imgs'])
+    except UserDeck.DoesNotExist:
+        return Response({'error': 'Deck não encontrado.'}, status=404)
+    return Response({'active_imgs': deck.active_imgs})
+
+
+# ── Collections ───────────────────────────────────────────────────────────────
+
+@api_view(['GET'])
+@jwt_required
+def get_collection(request):
+    """GET /api/auth/collection/ — retorna a coleção do usuário."""
+    col = request.user_obj.collections.first()
+    if not col:
+        return Response({'exists': False, 'cards': [], 'stats': None})
+    return Response({
+        'exists':      True,
+        'id':          col.id,
+        'name':        col.name,
+        'cards':       col.cards_json,
+        'by_set':      col.by_set_json,
+        'by_rarity':   col.by_rarity_json,
+        'by_category': col.by_category_json,
+        'stats':       col.stats_json,
+        'active_imgs': col.active_imgs,
+        'updated_at':  col.updated_at.isoformat(),
+    })
+
+
+@api_view(['POST'])
+@jwt_required
+def save_collection(request):
+    """POST /api/auth/collection/ — salva/atualiza a coleção."""
+    data = request.data
+    col  = request.user_obj.collections.first()
+
+    fields = {
+        'name':            data.get('name', 'Minha Coleção'),
+        'cards_json':      data.get('cards', []),
+        'by_set_json':     data.get('by_set', []),
+        'by_rarity_json':  data.get('by_rarity', {}),
+        'by_category_json': data.get('by_category', {}),
+        'stats_json':      data.get('stats', {}),
+        'active_imgs':     data.get('active_imgs', {}),
+    }
+
+    if col:
+        for k, v in fields.items():
+            setattr(col, k, v)
+        col.save()
+    else:
+        col = UserCollection.objects.create(user=request.user_obj, **fields)
+
+    return Response({'id': col.id, 'updated_at': col.updated_at.isoformat()})
+
+
+@api_view(['PATCH'])
+@jwt_required
+def update_collection_imgs(request):
+    """PATCH /api/auth/collection/imgs/ — atualiza imagens ativas."""
+    col = request.user_obj.collections.first()
+    if not col:
+        return Response({'error': 'Coleção não encontrada.'}, status=404)
+    col.active_imgs = {**col.active_imgs, **request.data.get('active_imgs', {})}
+    col.save(update_fields=['active_imgs'])
+    return Response({'active_imgs': col.active_imgs})
