@@ -399,3 +399,37 @@ def card_prices(request):
         return Response({'prices': prices, 'name': name})
     except Exception as e:
         return Response({'prices': None, 'error': str(e)})
+
+
+@api_view(['GET'])
+def health(request):
+    """
+    GET /api/health/ — estado do serviço e progresso da carga inicial.
+
+    Serve para acompanhar o seed sem ficar lendo o log do container.
+    """
+    import os
+
+    payload = {'status': 'ok', 'database': 'ok'}
+    try:
+        with connection.cursor() as cur:
+            cur.execute('SELECT COUNT(*) FROM cards')
+            payload['cards'] = cur.fetchone()[0]
+            cur.execute('SELECT COUNT(DISTINCT set_code) FROM cards')
+            payload['sets'] = cur.fetchone()[0]
+            cur.execute('SELECT COUNT(*) FROM rules')
+            payload['rules'] = cur.fetchone()[0]
+    except Exception as exc:
+        payload['status'] = 'degraded'
+        payload['database'] = f'erro: {exc}'
+        return Response(payload, status=503)
+
+    expected = int(os.environ.get('SEED_RECENT_SETS', 8))
+    if payload['cards'] == 0:
+        payload['seed'] = 'sem cartas — a importação pode estar em andamento ou ter falhado'
+    elif payload['sets'] < expected:
+        payload['seed'] = f"em andamento: {payload['sets']} de ~{expected} coleções importadas"
+    else:
+        payload['seed'] = 'concluído'
+
+    return Response(payload)

@@ -2,12 +2,15 @@ from django.urls import path
 
 from .views import (CardListView, CardImagesView, CollectionsView, SetDetailView,
                     RulesView, mana_symbols, sets_filter_list,
-                    card_types_list, card_prices)
+                    card_types_list, card_prices, health)
 from .game_views import create_game, get_game, game_action, list_decks
 from .deck_views import (import_deck, export_deck,
                          import_collection, export_collection)
 
 urlpatterns = [
+    # ── Diagnóstico ──
+    path('health/',             health,                   name='health'),
+
     # ── Grimório ──
     path('cards/',              CardListView.as_view(),   name='card-list'),
     path('cards/images/',       CardImagesView.as_view(), name='card-images'),
