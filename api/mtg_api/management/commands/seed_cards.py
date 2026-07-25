@@ -11,7 +11,7 @@ import time
 import urllib.parse
 import urllib.request
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
 
 SCRYFALL = 'https://api.scryfall.com'
@@ -90,8 +90,16 @@ class Command(BaseCommand):
 
         if not codes:
             recent = options['recent'] or 8
-            self.stdout.write(f'Buscando lista de coleções no Scryfall...')
-            data = get_json(f'{SCRYFALL}/sets')
+            self.stdout.write('Buscando lista de coleções no Scryfall...')
+            try:
+                data = get_json(f'{SCRYFALL}/sets')
+            except Exception as exc:
+                # Sem stacktrace: em geral é rede/proxy do ambiente, não bug.
+                raise CommandError(
+                    f'Não foi possível falar com o Scryfall ({exc}). '
+                    'Verifique a conexão do container e rode novamente: '
+                    'python manage.py seed_cards --recent 8'
+                ) from None
             sets = [
                 s for s in data.get('data', [])
                 if s.get('set_type') not in SKIP_SET_TYPES
