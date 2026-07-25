@@ -14,7 +14,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-RUN chmod +x /app/entrypoint.sh && mkdir -p /app/cache
+# Normaliza CRLF: em checkouts no Windows o \r gruda no shebang e o kernel
+# procura por /bin/sh\r, resultando em "no such file or directory".
+RUN sed -i 's/\r$//' /app/entrypoint.sh \
+ && chmod +x /app/entrypoint.sh \
+ && mkdir -p /app/cache
 
 EXPOSE 8000
 ENTRYPOINT ["/app/entrypoint.sh"]

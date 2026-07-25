@@ -1,0 +1,7 @@
+# Scripts executados dentro de containers Linux precisam de LF,
+# senão o \r quebra o shebang em checkouts no Windows.
+*.sh    text eol=lf
+*.sql   text eol=lf
+Dockerfile      text eol=lf
+entrypoint.sh   text eol=lf
+docker-compose.yml text eol=lf
