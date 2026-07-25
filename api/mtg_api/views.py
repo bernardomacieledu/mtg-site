@@ -255,6 +255,16 @@ class CollectionsView(APIView):
         # Ordena por data de lançamento (mais recentes primeiro), sem depender do MIN do banco
         sets.sort(key=lambda item: item['released_at'] or '', reverse=True)
 
+        import datetime
+        hoje = datetime.date.today().isoformat()
+        for item in sets:
+            item['is_upcoming'] = bool(item['released_at']) and item['released_at'] > hoje
+
+        upcoming = [item for item in sets if item['is_upcoming']]
+        lancadas = [item for item in sets if not item['is_upcoming']]
+        # As futuras vão em ordem cronológica: a que chega primeiro no topo
+        upcoming.reverse()
+
         by_year = {}
         for item in sets:
             key = item['released_at'][:4] if item['released_at'] else 'Desconhecido'
@@ -265,7 +275,8 @@ class CollectionsView(APIView):
         return Response({
             'total_sets':     len(sets),
             'total_cards':    sum(item['card_count'] for item in sets),
-            'latest':         sets[:limit],
+            'upcoming':       upcoming,
+            'latest':         lancadas[:limit],
             'available_years': [y['year'] for y in years],
             'years':          years,
         })
@@ -297,8 +308,11 @@ class SetDetailView(APIView):
         if not total:
             return Response({'error': 'Coleção não encontrada.'}, status=404)
 
+        import datetime
         info = get_set_names().get(code, {})
+        released_at = info.get('released_at') or (str(released) if released else '')
         return Response({
+            'is_upcoming':  bool(released_at) and released_at > datetime.date.today().isoformat(),
             'code':         code,
             'name':         info.get('name', code),
             'released_at':  info.get('released_at') or (str(released) if released else ''),

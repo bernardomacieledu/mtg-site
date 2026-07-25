@@ -116,7 +116,7 @@ As tabelas `cards` e `rules` são `managed = False` no Django — o schema vive 
 - Credenciais e secrets deixaram de ser hardcoded; `.pyc` saíram do versionamento.
 
 **Novidades**
-- Página **Coleções** com os lançamentos mais recentes em destaque, busca e filtro por ano.
+- Página **Coleções** com próximos lançamentos e lançamentos recentes em destaque, busca e filtro por ano.
 - Montagem de coleções carta a carta: botões `+`/`−` no grimório, dock flutuante de progresso e a tela `/colecao/montar`.
 - Suporte a **múltiplas coleções por usuário** (antes havia só uma), com renomear, editar e excluir.
 - Docker Compose completo com seed automático do banco.

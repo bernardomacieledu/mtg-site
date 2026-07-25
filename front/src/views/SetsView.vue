@@ -36,6 +36,37 @@
       </div>
 
       <template v-else>
+        <!-- Próximos lançamentos (coleções anunciadas, ainda não lançadas) -->
+        <section v-if="!query && !year && upcoming.length" class="latest-block">
+          <div class="section-head">
+            <h2 class="section-title upcoming-title">⌛ Próximos Lançamentos ⌛</h2>
+            <span class="section-sub">Coleções anunciadas — cartas reveladas até agora</span>
+          </div>
+
+          <div class="latest-grid">
+            <article
+              v-for="set in upcoming"
+              :key="set.code"
+              class="set-tile featured upcoming"
+              @click="openSet(set)"
+            >
+              <span class="upcoming-badge">{{ daysUntil(set.released_at) }}</span>
+              <img :src="set.icon_svg_uri" :alt="set.code" class="set-tile-icon" @error="hideIcon" />
+              <div class="set-tile-body">
+                <h3 class="set-tile-name">{{ set.name }}</h3>
+                <div class="set-tile-meta">
+                  <span class="set-code-badge">{{ set.code.toUpperCase() }}</span>
+                  <span>{{ formatDate(set.released_at) }}</span>
+                </div>
+                <div class="set-tile-count">
+                  {{ set.unique_count.toLocaleString('pt-BR') }} cartas reveladas
+                </div>
+              </div>
+              <div class="set-tile-cta">Ver cartas ▸</div>
+            </article>
+          </div>
+        </section>
+
         <!-- Lançamentos recentes -->
         <section v-if="!query && !year && latest.length" class="latest-block">
           <div class="section-head">
@@ -118,6 +149,7 @@ import { getCollections } from '@/composables/api'
 const router = useRouter()
 
 const latest        = ref([])
+const upcoming      = ref([])
 const years         = ref([])
 const availableYears = ref([])
 const visibleYears  = ref([])
@@ -134,6 +166,7 @@ async function fetchSets() {
   try {
     const { data } = await getCollections({ q: query.value, year: year.value, limit: 12 })
     latest.value          = data.latest || []
+    upcoming.value        = data.upcoming || []
     years.value           = data.years || []
     totalSets.value       = data.total_sets || 0
     totalCards.value      = data.total_cards || 0
@@ -143,6 +176,7 @@ async function fetchSets() {
   } catch (error) {
     console.error(error)
     latest.value = []
+    upcoming.value = []
     years.value = []
   } finally {
     loading.value = false
@@ -160,6 +194,15 @@ function openSet(set) {
 
 function hideIcon(event) {
   event.target.style.visibility = 'hidden'
+}
+
+function daysUntil(value) {
+  if (!value) return 'EM BREVE'
+  const dias = Math.ceil((new Date(value) - new Date()) / 86400000)
+  if (dias <= 0) return 'HOJE'
+  if (dias === 1) return 'AMANHÃ'
+  if (dias <= 60) return `EM ${dias} DIAS`
+  return 'EM BREVE'
 }
 
 function formatDate(value) {
@@ -222,6 +265,17 @@ onMounted(fetchSets)
 }
 .set-tile.featured { flex-direction: column; align-items: flex-start; padding: 20px 18px 16px; }
 .set-tile.newest { border-color: rgba(184,134,11,0.6); box-shadow: 0 0 22px rgba(184,134,11,0.14); }
+
+.upcoming-title { color: #9ec5e8; }
+.set-tile.upcoming { border-color: rgba(120,170,220,0.45); }
+.set-tile.upcoming:hover { border-color: #9ec5e8; box-shadow: 0 14px 28px rgba(0,0,0,0.55), 0 0 22px rgba(120,170,220,0.18); }
+.set-tile.upcoming .set-tile-icon { filter: invert(0.85) sepia(0.15) hue-rotate(170deg); }
+.upcoming-badge {
+  position: absolute; top: 10px; right: 10px;
+  font-family: 'Cinzel', serif; font-size: 0.5rem; letter-spacing: 2px;
+  color: #0d1620; background: #9ec5e8;
+  padding: 3px 7px; border-radius: 2px;
+}
 
 .newest-badge {
   position: absolute; top: 10px; right: 10px;

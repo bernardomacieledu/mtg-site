@@ -136,6 +136,8 @@ class Command(BaseCommand):
                             help='Só coleções lançadas a partir deste ano (ex: 2015).')
         parser.add_argument('--skip-existing', action='store_true',
                             help='Pula coleções que já têm cartas no banco (permite retomar).')
+        parser.add_argument('--released-only', action='store_true',
+                            help='Ignora coleções ainda não lançadas (por padrão elas entram).')
         parser.add_argument('--bulk', action='store_true',
                             help='Baixa o arquivo bulk do Scryfall: bem mais rápido para pegar tudo.')
         parser.add_argument('--sets', type=str, default='',
@@ -163,14 +165,22 @@ class Command(BaseCommand):
                     'python manage.py seed_cards --recent 8'
                 ) from None
 
+            hoje = time.strftime('%Y-%m-%d')
             sets = [
                 s for s in data.get('data', [])
                 if s.get('set_type') not in SKIP_SET_TYPES
                 and s.get('card_count', 0) > 0
                 and s.get('released_at')
-                and s['released_at'] <= time.strftime('%Y-%m-%d')
                 and not s.get('digital')
+                # Coleções anunciadas (spoilers) entram por padrão: são o que
+                # o público mais procura. --released-only volta ao antigo.
+                and (not options['released_only'] or s['released_at'] <= hoje)
             ]
+
+            futuras = [s for s in sets if s['released_at'] > hoje]
+            if futuras:
+                nomes = ', '.join(f"{s['code'].upper()} ({s['released_at']})" for s in futuras[:5])
+                self.stdout.write(f'{len(futuras)} coleção(ões) futura(s) incluída(s): {nomes}')
             if options['since']:
                 sets = [s for s in sets if s['released_at'][:4] >= options['since']]
 
