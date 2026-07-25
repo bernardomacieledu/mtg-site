@@ -22,12 +22,6 @@
             </router-link>
           </li>
           <li>
-            <router-link to="/colecao/montar"
-              :class="{ active: ['collection-builder','collection-import'].includes($route.name) }">
-              📦 Montar
-            </router-link>
-          </li>
-          <li>
             <router-link to="/regras" :class="{ active: $route.name === 'rules' }">
               🏛 Regras
             </router-link>
@@ -53,7 +47,6 @@
         <div v-if="mobileOpen" class="mobile-drawer">
           <router-link to="/"           @click="mobileOpen=false">⚔ Cartas</router-link>
           <router-link to="/colecoes"   @click="mobileOpen=false">❖ Coleções</router-link>
-          <router-link to="/colecao/montar" @click="mobileOpen=false">📦 Montar Coleção</router-link>
           <router-link to="/regras"     @click="mobileOpen=false">🏛 Regras</router-link>
           <router-link to="/biblioteca" @click="mobileOpen=false">📚 Biblioteca</router-link>
           <router-link v-if="!auth.isLoggedIn" to="/login" @click="mobileOpen=false">⚔ Entrar</router-link>

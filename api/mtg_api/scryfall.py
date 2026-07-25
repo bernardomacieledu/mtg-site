@@ -61,5 +61,22 @@ def get_set_names() -> dict:
 
 
 def get_mana_map() -> dict:
+    """
+    Símbolos de mana: banco primeiro, Scryfall como complemento.
+
+    Preenchido por `manage.py seed_symbols`, para não depender de rede a cada
+    request (sem isso a interface mostra as letras no lugar dos símbolos).
+    """
+    mapa = {}
+
+    try:
+        from .models import ManaSymbol
+        mapa = dict(ManaSymbol.objects.values_list('symbol', 'svg_uri'))
+    except Exception:
+        pass  # tabela ainda não migrada
+
     data = fetch_scryfall('https://api.scryfall.com/symbology', 'symbology_cache.json')
-    return {s['symbol']: s['svg_uri'] for s in data.get('data', [])}
+    for s in data.get('data', []):
+        mapa.setdefault(s['symbol'], s['svg_uri'])
+
+    return mapa

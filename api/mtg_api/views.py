@@ -69,7 +69,8 @@ def _build_where(search='', set_code='', rarity='', card_type='', cmc='', cmc_op
 
     if colors:
         for col in colors.split(','):
-            col = col.strip().upper()
+            # O front envia "{W},{U}"; aceita também "W,U" para uso direto da API.
+            col = col.strip().upper().strip('{}')
             if col in ('W', 'U', 'B', 'R', 'G'):
                 # Casa o símbolo exato ({W}) e híbridos ({W/U}, {2/W}) — antes um
                 # LIKE '%W%' solto casava com qualquer texto que tivesse a letra.

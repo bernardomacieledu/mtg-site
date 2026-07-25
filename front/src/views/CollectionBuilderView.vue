@@ -2,7 +2,10 @@
   <div>
     <div class="page-hero">
       <h1 class="page-hero-title">Montar Coleção</h1>
-      <p class="page-hero-sub">Adicione cartas pelo Grimório e organize sua coleção</p>
+      <p class="page-hero-sub">
+        <router-link to="/biblioteca" class="back-link">📚 Biblioteca</router-link>
+        <span class="crumb-sep">›</span> montando uma coleção
+      </p>
       <div class="hero-divider"><span class="hero-divider-gem">📦</span></div>
     </div>
 
@@ -107,18 +110,9 @@
         <div v-else-if="!store.list.length" class="side-empty">
           Nenhuma coleção salva ainda.
         </div>
-
-        <div v-for="item in store.list" :key="item.id" class="saved-item">
-          <div class="saved-info">
-            <div class="saved-name">{{ item.name }}</div>
-            <div class="saved-meta">
-              {{ item.total_copies }} cópias · {{ item.total_unique }} únicas
-            </div>
-          </div>
-          <div class="saved-actions">
-            <button class="icon-btn" title="Editar" @click="edit(item.id)">✎</button>
-            <button class="icon-btn danger" title="Excluir" @click="remove(item)">🗑</button>
-          </div>
+        <div v-else class="side-empty">
+          Você tem {{ store.list.length }} coleção(ões) salva(s).
+          <router-link to="/biblioteca">Ver na Biblioteca ▸</router-link>
         </div>
 
         <router-link to="/colecao/importar" class="btn-ghost side-import">
@@ -216,6 +210,10 @@ onMounted(() => store.loadList())
 </script>
 
 <style scoped>
+.back-link { color: var(--gold-shine); text-decoration: none; }
+.back-link:hover { text-decoration: underline; }
+.crumb-sep { color: var(--parchment-xdk); margin: 0 6px; }
+
 .builder-layout { display: grid; grid-template-columns: 1fr 300px; gap: 1.8rem; align-items: start; }
 
 .builder-head { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 1rem; }

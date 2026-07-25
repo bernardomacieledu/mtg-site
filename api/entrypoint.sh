@@ -23,6 +23,7 @@ if [ "$SETS" = "0" ]; then
 else
   echo "    catalogo ja presente ($SETS colecoes)."
 fi
+python manage.py seed_symbols || echo "    !! Simbolos de mana indisponiveis; serao exibidas as letras."
 
 echo "==> [5/5] Carga inicial de cartas..."
 if [ "${SEED_ON_START:-0}" = "1" ]; then

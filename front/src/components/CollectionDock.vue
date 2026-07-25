@@ -13,7 +13,7 @@
         </div>
       </div>
 
-      <button class="dock-btn" @click="goToBuilder">Montar ▸</button>
+      <button class="dock-btn" @click="goToBuilder">Continuar ▸</button>
     </div>
   </Transition>
 </template>

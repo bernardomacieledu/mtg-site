@@ -61,3 +61,22 @@ class CardSet(models.Model):
 
     def __str__(self):
         return f'{self.name} ({self.code.upper()})'
+
+
+class ManaSymbol(models.Model):
+    """
+    Símbolos de mana ({W}, {2/U}, {T}...) com a URL do SVG.
+
+    Ficavam só em cache de disco alimentado por uma chamada ao Scryfall em
+    tempo de request; no container o cache nasce vazio e a interface exibia as
+    letras em vez dos símbolos.
+    """
+    symbol   = models.CharField(max_length=20, primary_key=True)
+    svg_uri  = models.CharField(max_length=512)
+    english  = models.CharField(max_length=255, blank=True, default='')
+
+    class Meta:
+        db_table = 'mtg_symbols'
+
+    def __str__(self):
+        return self.symbol
