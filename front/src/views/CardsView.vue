@@ -37,7 +37,9 @@
         <CardItem v-for="card in cards" :key="card.name" :card="card" />
       </TransitionGroup>
 
-      <div v-if="!loading && cards.length === 0" class="no-results">
+      <div v-if="loadError" class="load-error">⚠ {{ loadError }}</div>
+
+      <div v-if="!loading && !loadError && cards.length === 0" class="no-results">
         <div class="no-results-title">✦ Nenhum Artefato Encontrado ✦</div>
         <p class="no-results-sub">Os arquivos do Nexus não revelam cartas para estes critérios.</p>
       </div>
@@ -64,6 +66,7 @@ const total        = ref(0)
 const totalPages   = ref(1)
 const page         = ref(1)
 const loading      = ref(false)
+const loadError    = ref('')
 const activeFilters = reactive({})
 
 // Lê filtros iniciais da URL
@@ -79,38 +82,57 @@ const setName = computed(() => sets.value.find(s => s.code === activeFilters.set
 
 async function fetchCards(filters) {
   loading.value = true
+  loadError.value = ''
   Object.assign(activeFilters, filters)
   try {
     const { data } = await getCards({ ...filters, page: page.value })
     cards.value      = data.results
     total.value      = data.count
     totalPages.value = data.total_pages
-  } catch (e) { console.error(e) }
-  finally { loading.value = false }
+  } catch (error) {
+    console.error(error)
+    cards.value = []
+    total.value = 0
+    totalPages.value = 1
+    loadError.value = 'Não foi possível carregar as cartas. Verifique se a API está no ar.'
+  } finally { loading.value = false }
 }
 
 async function fetchSets() {
   try { const { data } = await getSets(); sets.value = data.sets } catch {}
 }
 
-function onSearch(f) {
-  page.value = 1
-  router.replace({ query: { ...f } })
-  fetchCards(f)
+function onSearch(filters) {
+  // Só atualiza a URL: o watch abaixo é a única origem de fetch.
+  // Antes o onSearch buscava E trocava a query, disparando duas requisições.
+  router.push({ query: { ...cleanQuery(filters), page: 1 } })
 }
 
-function onPageChange(p) { page.value = p; fetchCards(activeFilters) }
+function onPageChange(newPage) {
+  router.push({ query: { ...route.query, page: newPage } })
+}
 
-watch(() => route.query, (q) => {
-  fetchCards({
-    q: q.q || '', set: q.set || '', rarity: q.rarity || '',
-    type: q.type || '', cmc: q.cmc || '', cmc_op: q.cmc_op || '=',
-    colors: q.colors || '', date_from: q.date_from || '', date_to: q.date_to || '',
-  })
+function cleanQuery(filters) {
+  // remove chaves vazias para a URL não ficar poluída
+  return Object.fromEntries(Object.entries(filters).filter(([, value]) => value !== '' && value != null))
+}
+
+function filtersFromQuery(query) {
+  return {
+    q: query.q || '', set: query.set || '', rarity: query.rarity || '',
+    type: query.type || '', cmc: query.cmc || '', cmc_op: query.cmc_op || '=',
+    colors: query.colors || '', date_from: query.date_from || '', date_to: query.date_to || '',
+  }
+}
+
+watch(() => route.query, (query) => {
+  page.value = Math.max(1, parseInt(query.page, 10) || 1)
+  fetchCards(filtersFromQuery(query))
 }, { immediate: false })
 
 onMounted(() => {
   fetchSets()
+  page.value = Math.max(1, parseInt(route.query.page, 10) || 1)
   fetchCards(initialFilters.value)
 })
 </script>
@@ -127,6 +149,7 @@ onMounted(() => {
 .results-bar  { display:flex; align-items:center; justify-content:space-between; margin-bottom:1.4rem; }
 .results-info { font-family:'Cinzel',serif; font-size:0.72rem; letter-spacing:2px; color:var(--parchment-xdk); }
 .results-info strong { color:var(--gold); }
+.load-error   { text-align:center; padding:2.4rem 1rem; color:#e8b0b0; background:rgba(120,40,40,0.12); border:1px solid rgba(200,90,90,0.3); border-radius:3px; }
 .no-results   { text-align:center; padding:5rem 2rem; }
 .no-results-title { font-family:'Cinzel Decorative',serif; font-size:1.4rem; color:var(--gold); margin-bottom:1rem; }
 .no-results-sub   { font-style:italic; color:var(--parchment-xdk); }

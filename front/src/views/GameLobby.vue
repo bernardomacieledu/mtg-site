@@ -77,7 +77,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import axios from 'axios'
+import api from '@/composables/api'
 import { useRouter } from 'vue-router'
 
 
@@ -89,7 +89,7 @@ const loading = ref(false)
 const router  = useRouter()
 
 onMounted(async () => {
-  const { data } = await axios.get('/api/game/decks/')
+  const { data } = await api.get('/game/decks/')
   decks.value = data.decks
   if (decks.value.length) selectedDeck.value = decks.value[0].id
 })
@@ -98,7 +98,7 @@ async function startGame() {
   if (!selectedDeck.value || loading.value) return
   loading.value = true
   try {
-    const { data } = await axios.post('/api/game/create/', {
+    const { data } = await api.post('/game/create/', {
       p1_deck: selectedDeck.value,
       p2_deck: opponentDeck.value,
       p1_name: playerName.value || 'Jogador',

@@ -30,7 +30,12 @@
         </div>
       </div>
 
-      <div v-if="!collection.cards?.length" class="empty-state">
+      <div v-if="loadingCollection" class="spinner-wrap">
+        <div class="spinner"></div>
+        <span class="spinner-text">Abrindo a coleção...</span>
+      </div>
+
+      <div v-else-if="!collection.cards?.length" class="empty-state">
         <div class="empty-title">✦ Coleção Vazia ✦</div>
         <p class="empty-sub">Volte à Biblioteca e importe sua coleção</p>
         <button class="btn-ghost" style="margin-top:1.5rem" @click="router.push({name:'library'})">◂ Voltar</button>
@@ -137,11 +142,14 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, defineComponent, h } from 'vue'
-import { useRouter } from 'vue-router'
-import axios from 'axios'
+import { ref, computed, watch, onMounted, onUnmounted, defineComponent, h } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import api from '@/composables/api'
+import { useCollectionsStore } from '@/stores/collections'
 
 const router = useRouter()
+const route  = useRoute()
+const store  = useCollectionsStore()
 
 // ── CardTile component ────────────────────────────────────────────────────
 const CardTile = defineComponent({
@@ -193,8 +201,51 @@ const CardTile = defineComponent({
 })
 
 // ── State ─────────────────────────────────────────────────────────────────
-const collection = ref(JSON.parse(localStorage.getItem('mtg_collection') ||
-  '{"cards":[],"bySet":[],"byRarity":{},"byCategory":{},"stats":null,"name":"Minha Coleção"}'))
+const EMPTY_COLLECTION = {
+  name: 'Minha Coleção', cards: [], bySet: [], byRarity: {}, byCategory: {}, stats: null,
+}
+
+const collection = ref({ ...EMPTY_COLLECTION })
+const loadingCollection = ref(true)
+
+/** Aceita tanto o formato do backend (snake_case) quanto o do localStorage. */
+function normalizeCollection(data) {
+  return {
+    id:         data.id,
+    name:       data.name || 'Minha Coleção',
+    cards:      data.cards || [],
+    bySet:      data.bySet || data.by_set || [],
+    byRarity:   data.byRarity || data.by_rarity || {},
+    byCategory: data.byCategory || data.by_category || {},
+    stats:      data.stats || null,
+  }
+}
+
+async function loadCollection() {
+  loadingCollection.value = true
+  try {
+    const id = route.params.id
+    if (id) {
+      // Coleção específica (backend quando logado, localStorage quando não)
+      const data = await store.getCollection(id)
+      collection.value = data ? normalizeCollection(data) : { ...EMPTY_COLLECTION }
+    } else {
+      // Rota legada: primeira coleção salva, com fallback para o rascunho local
+      await store.loadList()
+      const first = store.list[0]
+      if (first) {
+        const data = await store.getCollection(first.id)
+        collection.value = data ? normalizeCollection(data) : { ...EMPTY_COLLECTION }
+      } else {
+        let legacy = null
+        try { legacy = JSON.parse(localStorage.getItem('mtg_collection')) } catch { legacy = null }
+        collection.value = legacy ? normalizeCollection(legacy) : { ...EMPTY_COLLECTION }
+      }
+    }
+  } finally {
+    loadingCollection.value = false
+  }
+}
 
 const activeView  = ref('type')
 const filterText  = ref('')
@@ -231,11 +282,14 @@ function changeCardImg(name, url) {
   localStorage.setItem('mtg_active_imgs', JSON.stringify(saved))
 }
 
-onMounted(() => {
+onMounted(async () => {
   // Restaura imagens salvas
-  const saved = JSON.parse(localStorage.getItem('mtg_active_imgs') || '{}')
-  activeImgs.value = saved
+  try { activeImgs.value = JSON.parse(localStorage.getItem('mtg_active_imgs') || '{}') }
+  catch { activeImgs.value = {} }
+  await loadCollection()
 })
+
+watch(() => route.params.id, loadCollection)
 
 function matchFilter(card) {
   if (!filterText.value) return true
@@ -268,7 +322,7 @@ const filteredByRarity = computed(() => {
 const filteredAll = computed(() => (collection.value.cards || []).filter(matchFilter))
 
 async function exportJson() {
-  const { data } = await axios.post('/api/collection/export/', {
+  const { data } = await api.post('/collection/export/', {
     name: collection.value.name, cards: collection.value.cards
   })
   const a = Object.assign(document.createElement('a'), {

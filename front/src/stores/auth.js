@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import axios from 'axios'
+import api from '@/composables/api'
 
 export const useAuthStore = defineStore('auth', () => {
   const token    = ref(localStorage.getItem('mtg_token') || '')
@@ -16,7 +16,6 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.setItem('mtg_token',    data.token)
     localStorage.setItem('mtg_username', data.username)
     localStorage.setItem('mtg_uid',      String(data.uid))
-    axios.defaults.headers.common['Authorization'] = `Bearer ${data.token}`
   }
 
   function clearAuth() {
@@ -26,26 +25,28 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem('mtg_token')
     localStorage.removeItem('mtg_username')
     localStorage.removeItem('mtg_uid')
-    delete axios.defaults.headers.common['Authorization']
   }
 
+  // O token é injetado pelo interceptor de @/composables/api a cada request,
+  // então aqui basta sincronizar o estado com o localStorage.
   function initAuth() {
-    if (token.value) {
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token.value}`
-    }
+    token.value    = localStorage.getItem('mtg_token') || ''
+    username.value = localStorage.getItem('mtg_username') || ''
+    uid.value      = localStorage.getItem('mtg_uid') || ''
+    window.addEventListener('mtg:unauthorized', clearAuth)
   }
 
   async function register(usernameVal, email, password) {
-    const { data } = await axios.post('/api/auth/register/', {
-      username: usernameVal, email, password
+    const { data } = await api.post('/auth/register/', {
+      username: usernameVal, email, password,
     })
     setAuth(data)
     return data
   }
 
   async function login(usernameVal, password) {
-    const { data } = await axios.post('/api/auth/login/', {
-      username: usernameVal, password
+    const { data } = await api.post('/auth/login/', {
+      username: usernameVal, password,
     })
     setAuth(data)
     return data

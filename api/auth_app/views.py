@@ -3,11 +3,8 @@ auth_views.py — Autenticação JWT + CRUD de decks e coleções por usuário
 """
 import jwt
 import datetime
-import hashlib
-import os
 from functools import wraps
 
-from django.contrib.auth import authenticate
 from django.contrib.auth.hashers import make_password, check_password
 from django.conf import settings
 from rest_framework.decorators import api_view
@@ -235,16 +232,22 @@ def update_deck_imgs(request, deck_id):
     return Response({'active_imgs': deck.active_imgs})
 
 
-# ── Collections ───────────────────────────────────────────────────────────────
+# ── Collections (múltiplas por usuário) ──────────────────────────────────────
 
-@api_view(['GET'])
-@jwt_required
-def get_collection(request):
-    """GET /api/auth/collection/ — retorna a coleção do usuário."""
-    col = request.user_obj.collections.first()
-    if not col:
-        return Response({'exists': False, 'cards': [], 'stats': None})
-    return Response({
+def _collection_summary(col):
+    stats = col.stats_json or {}
+    return {
+        'id':           col.id,
+        'name':         col.name,
+        'total_copies': stats.get('total_copies', 0),
+        'total_unique': stats.get('total_unique', len(col.cards_json or [])),
+        'total_sets':   stats.get('total_sets', 0),
+        'updated_at':   col.updated_at.isoformat(),
+    }
+
+
+def _collection_payload(col):
+    return {
         'exists':      True,
         'id':          col.id,
         'name':        col.name,
@@ -255,29 +258,113 @@ def get_collection(request):
         'stats':       col.stats_json,
         'active_imgs': col.active_imgs,
         'updated_at':  col.updated_at.isoformat(),
-    })
+    }
+
+
+def _fields_from_request(data):
+    return {
+        'name':             data.get('name', 'Minha Coleção'),
+        'cards_json':       data.get('cards', []),
+        'by_set_json':      data.get('by_set', []),
+        'by_rarity_json':   data.get('by_rarity', {}),
+        'by_category_json': data.get('by_category', {}),
+        'stats_json':       data.get('stats', {}),
+        'active_imgs':      data.get('active_imgs', {}),
+    }
+
+
+@api_view(['GET'])
+@jwt_required
+def list_collections(request):
+    """GET /api/auth/collections/ — lista todas as coleções do usuário."""
+    return Response([_collection_summary(c) for c in request.user_obj.collections.all()])
+
+
+@api_view(['GET'])
+@jwt_required
+def get_collection_by_id(request, collection_id):
+    """GET /api/auth/collections/<id>/ — retorna uma coleção completa."""
+    try:
+        col = UserCollection.objects.get(id=collection_id, user=request.user_obj)
+    except UserCollection.DoesNotExist:
+        return Response({'error': 'Coleção não encontrada.'}, status=404)
+    return Response(_collection_payload(col))
+
+
+@api_view(['POST'])
+@jwt_required
+def save_collection_multi(request):
+    """
+    POST /api/auth/collections/save/ — cria ou atualiza.
+    Com "id" no corpo, atualiza a coleção correspondente; sem "id", cria uma nova.
+    """
+    data = request.data
+    fields = _fields_from_request(data)
+    collection_id = data.get('id')
+
+    if collection_id:
+        try:
+            col = UserCollection.objects.get(id=collection_id, user=request.user_obj)
+        except UserCollection.DoesNotExist:
+            return Response({'error': 'Coleção não encontrada.'}, status=404)
+        for key, value in fields.items():
+            setattr(col, key, value)
+        col.save()
+    else:
+        col = UserCollection.objects.create(user=request.user_obj, **fields)
+
+    return Response({'id': col.id, 'name': col.name, 'updated_at': col.updated_at.isoformat()},
+                    status=200 if collection_id else 201)
+
+
+@api_view(['DELETE'])
+@jwt_required
+def delete_collection(request, collection_id):
+    """DELETE /api/auth/collections/<id>/delete/"""
+    deleted, _ = UserCollection.objects.filter(id=collection_id, user=request.user_obj).delete()
+    if not deleted:
+        return Response({'error': 'Coleção não encontrada.'}, status=404)
+    return Response({'deleted': True})
+
+
+@api_view(['PATCH'])
+@jwt_required
+def rename_collection(request, collection_id):
+    """PATCH /api/auth/collections/<id>/rename/"""
+    name = (request.data.get('name') or '').strip()
+    if not name:
+        return Response({'error': 'Nome obrigatório.'}, status=400)
+    try:
+        col = UserCollection.objects.get(id=collection_id, user=request.user_obj)
+    except UserCollection.DoesNotExist:
+        return Response({'error': 'Coleção não encontrada.'}, status=404)
+    col.name = name
+    col.save(update_fields=['name', 'updated_at'])
+    return Response({'id': col.id, 'name': col.name})
+
+
+# ── Compatibilidade: endpoints antigos de coleção única ──────────────────────
+
+@api_view(['GET'])
+@jwt_required
+def get_collection(request):
+    """GET /api/auth/collection/ — primeira coleção do usuário."""
+    col = request.user_obj.collections.first()
+    if not col:
+        return Response({'exists': False, 'cards': [], 'stats': None})
+    return Response(_collection_payload(col))
 
 
 @api_view(['POST'])
 @jwt_required
 def save_collection(request):
-    """POST /api/auth/collection/ — salva/atualiza a coleção."""
-    data = request.data
-    col  = request.user_obj.collections.first()
-
-    fields = {
-        'name':            data.get('name', 'Minha Coleção'),
-        'cards_json':      data.get('cards', []),
-        'by_set_json':     data.get('by_set', []),
-        'by_rarity_json':  data.get('by_rarity', {}),
-        'by_category_json': data.get('by_category', {}),
-        'stats_json':      data.get('stats', {}),
-        'active_imgs':     data.get('active_imgs', {}),
-    }
+    """POST /api/auth/collection/ — salva/atualiza a primeira coleção."""
+    col = request.user_obj.collections.first()
+    fields = _fields_from_request(request.data)
 
     if col:
-        for k, v in fields.items():
-            setattr(col, k, v)
+        for key, value in fields.items():
+            setattr(col, key, value)
         col.save()
     else:
         col = UserCollection.objects.create(user=request.user_obj, **fields)
@@ -287,11 +374,14 @@ def save_collection(request):
 
 @api_view(['PATCH'])
 @jwt_required
-def update_collection_imgs(request):
+def update_collection_imgs(request, collection_id=None):
     """PATCH /api/auth/collection/imgs/ — atualiza imagens ativas."""
-    col = request.user_obj.collections.first()
+    if collection_id:
+        col = UserCollection.objects.filter(id=collection_id, user=request.user_obj).first()
+    else:
+        col = request.user_obj.collections.first()
     if not col:
         return Response({'error': 'Coleção não encontrada.'}, status=404)
-    col.active_imgs = {**col.active_imgs, **request.data.get('active_imgs', {})}
-    col.save(update_fields=['active_imgs'])
+    col.active_imgs = {**(col.active_imgs or {}), **request.data.get('active_imgs', {})}
+    col.save(update_fields=['active_imgs', 'updated_at'])
     return Response({'active_imgs': col.active_imgs})

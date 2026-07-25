@@ -206,7 +206,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import axios from 'axios'
+import api from '@/composables/api'
 import { useMana } from '@/composables/useMana'
 
 const route  = useRoute()
@@ -269,7 +269,7 @@ async function saveEdit() {
   if (!editForm.value.text.trim()) return
   editForm.value.loading = true
   try {
-    const { data } = await axios.post('/api/deck/import/', { text: editForm.value.text })
+    const { data } = await api.post('/deck/import/', { text: editForm.value.text })
     const commander = editForm.value.commanderName
       ? data.legendary_creatures?.find(c => c.name === editForm.value.commanderName) || null
       : null

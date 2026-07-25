@@ -50,46 +50,50 @@
         </div>
       </div>
 
-      <!-- ════ TAB: COLEÇÃO ════ -->
+      <!-- ════ TAB: COLEÇÕES ════ -->
       <div v-if="activeTab === 'collection'" class="tab-content">
-        <div v-if="!collection.cards?.length" class="items-grid">
-          <div class="add-card" @click="openCollectionModal()">
-            <div class="add-icon">＋</div>
-            <div class="add-label">Importar Coleção</div>
-            <div class="add-sub">Adicione suas cartas</div>
-          </div>
+        <div v-if="collections.loading" class="spinner-wrap">
+          <div class="spinner"></div>
+          <span class="spinner-text">Carregando coleções...</span>
         </div>
 
-        <div v-else>
-          <div v-if="collection.stats" class="stats-bar-inline">
-            <div class="stat-chip">📦 <strong>{{ collection.stats.total_copies }}</strong> cópias</div>
-            <div class="stat-chip">🃏 <strong>{{ collection.stats.total_unique }}</strong> únicas</div>
-            <div class="stat-chip">📚 <strong>{{ collection.stats.total_sets }}</strong> sets</div>
-            <div style="margin-left:auto;display:flex;gap:6px;">
-              <button class="btn-ghost" style="font-size:0.62rem" @click="openCollectionModal()">+ Atualizar</button>
-              <button class="btn-primary" style="font-size:0.62rem" @click="router.push({ name: 'collection-detail' })">📂 Abrir Coleção</button>
+        <div v-else class="items-grid">
+          <div v-for="col in collections.list" :key="col.id"
+            class="item-card"
+            @click="router.push({ name: 'collection-detail-id', params: { id: col.id } })">
+            <div class="item-card-header">
+              <span class="commander-tag">📦 COLEÇÃO</span>
+            </div>
+            <div class="item-card-name">{{ col.name }}</div>
+            <div class="item-card-meta">
+              <span>{{ col.total_copies }} cópias</span>
+              <span>{{ col.total_unique }} únicas</span>
+            </div>
+            <div class="item-card-meta">
+              <span>{{ col.total_sets }} sets</span>
+            </div>
+            <div class="item-card-actions">
+              <button class="action-sm" @click.stop="editCollection(col.id)">✏ Montar</button>
+              <button class="action-sm danger" @click.stop="removeCollection(col)">🗑</button>
             </div>
           </div>
 
-          <div v-for="(cards, cat) in previewByCategory" :key="cat" class="preview-cat">
-  <div class="preview-cat-header" @click="toggleCat(cat)" style="cursor:pointer">
-    {{ catIcon(cat) }} {{ catLabel(cat) }}
-    <span class="col-group-count">{{ cards.reduce((a,c)=>a+c.qty,0) }}</span>
-    <span style="margin-left:auto;font-size:0.65rem;color:var(--gold)">
-      {{ collapseState[cat] ? '▶ expandir' : '▼ recolher' }}
-    </span>
-  </div>
-  <div v-if="!collapseState[cat]" class="preview-grid">
-    <div v-for="c in cards" :key="c.name"
-      class="preview-card"
-      @mouseenter="hovered = c"
-      @mouseleave="hovered = null"
-      @click="router.push({ name: 'card-detail', params: { name: c.name } })">
-      <img :src="c.image_url" :alt="c.name" class="preview-img" @error="e=>e.target.src=''" />
-      <div class="preview-qty">{{ c.qty }}×</div>
-    </div>
-  </div>
-</div>
+          <div class="add-card" @click="router.push({ name: 'collection-builder' })">
+            <div class="add-icon">＋</div>
+            <div class="add-label">Nova Coleção</div>
+            <div class="add-sub">Monte carta a carta</div>
+          </div>
+
+          <div class="add-card" @click="openCollectionModal()">
+            <div class="add-icon">⬆</div>
+            <div class="add-label">Importar Lista</div>
+            <div class="add-sub">Cole uma decklist pronta</div>
+          </div>
+        </div>
+
+        <div v-if="!collections.loading && !collections.list.length" class="lib-hint">
+          Nenhuma coleção salva ainda. Use o botão <strong>+</strong> nas cartas do
+          <router-link to="/">Grimório</router-link> para começar a montar.
         </div>
       </div>
     </div>
@@ -159,21 +163,29 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import axios from 'axios'
+import api from '@/composables/api'
+import { useCollectionsStore } from '@/stores/collections'
+import { useLibrary } from '@/composables/useLibrary'
 
-const router = useRouter()
+const router      = useRouter()
+const collections = useCollectionsStore()
+const library     = useLibrary()
 
 const activeTab = ref('decks')
 const tabs = [
   { id: 'decks',      icon: '⚔', label: 'Meus Decks' },
-  { id: 'collection', icon: '📦', label: 'Minha Coleção' },
+  { id: 'collection', icon: '📦', label: 'Minhas Coleções' },
 ]
 
 const hovered  = ref(null)
 const mousePos = ref({ x: 0, y: 0 })
 
 function onMouseMove(e) { mousePos.value = { x: e.clientX, y: e.clientY } }
-onMounted(() => window.addEventListener('mousemove', onMouseMove))
+onMounted(() => {
+  window.addEventListener('mousemove', onMouseMove)
+  library.loadDecks()
+  collections.loadList()
+})
 onUnmounted(() => window.removeEventListener('mousemove', onMouseMove))
 
 const hoverStyle = computed(() => {
@@ -185,12 +197,12 @@ const hoverStyle = computed(() => {
 })
 
 // ── Decks ─────────────────────────────────────────────────────────────────
-const decks         = ref(JSON.parse(localStorage.getItem('mtg_decks') || '[]'))
+const decks         = library.decks
 const showDeckModal = ref(false)
 const editingDeck   = ref(null)
 const deckForm      = ref({ name:'', text:'', loading:false, msg:'', legendaries:[], commanderName:'' })
 
-function saveDecksLocal() { localStorage.setItem('mtg_decks', JSON.stringify(decks.value)) }
+// A persistência (backend quando logado, localStorage quando não) fica no useLibrary.
 
 function openDeckModal(deck = null) {
   editingDeck.value = deck
@@ -203,16 +215,16 @@ function openDeckModal(deck = null) {
   showDeckModal.value = true
 }
 
-function removeDeck(id) {
-  decks.value = decks.value.filter(d => d.id !== id)
-  saveDecksLocal()
+async function removeDeck(id) {
+  if (!confirm('Excluir este deck?')) return
+  await library.deleteDeck(id)
 }
 
 async function saveDeck() {
   if (!deckForm.value.text.trim()) { deckForm.value.msg = '❌ Cole a lista.'; return }
   deckForm.value.loading = true; deckForm.value.msg = ''
   try {
-    const { data } = await axios.post('/api/deck/import/', { text: deckForm.value.text })
+    const { data } = await api.post('/deck/import/', { text: deckForm.value.text })
 
     const commander = deckForm.value.commanderName
       ? data.legendary_creatures?.find(c => c.name === deckForm.value.commanderName) || null
@@ -226,7 +238,7 @@ async function saveDeck() {
     }
 
     const deck = {
-      id:          editingDeck.value?.id || Date.now().toString(),
+      id:          editingDeck.value?.id,
       name:        deckForm.value.name || 'Deck sem nome',
       raw_text:    deckForm.value.text,
       cards:       data.cards,
@@ -239,14 +251,7 @@ async function saveDeck() {
       not_found:   data.not_found,
     }
 
-    if (editingDeck.value) {
-      const idx = decks.value.findIndex(d => d.id === editingDeck.value.id)
-      if (idx >= 0) decks.value[idx] = deck
-    } else {
-      decks.value.push(deck)
-    }
-
-    saveDecksLocal()
+    await library.saveDeck(deck)
     deckForm.value.legendaries   = data.legendary_creatures || []
     deckForm.value.commanderName = commander?.name || ''
     deckForm.value.msg = `✔ ${data.stats.total_cards} cartas!`
@@ -258,45 +263,44 @@ async function saveDeck() {
 }
 
 // ── Collection ────────────────────────────────────────────────────────────
-const collection = ref(JSON.parse(localStorage.getItem('mtg_collection') ||
-  '{"cards":[],"bySet":[],"byRarity":{},"byCategory":{},"stats":null,"name":"Minha Coleção"}'))
 const showColModal = ref(false)
 const colForm      = ref({ name:'Minha Coleção', text:'', loading:false, msg:'' })
 
-const collapseState = ref({})
-function toggleCat(cat) {
-  collapseState.value[cat] = !collapseState.value[cat]
+function openCollectionModal() {
+  colForm.value = { name: 'Nova Coleção', text: '', loading: false, msg: '' }
+  showColModal.value = true
 }
 
-const CAT_ORDER_PREVIEW = ['creature','artifact','enchantment','planeswalker','instant','sorcery','land','other']
-const previewByCategory = computed(() => {
-  const result = {}
-  for (const cat of CAT_ORDER_PREVIEW) {
-    const cards = collection.value.byCategory?.[cat] || []
-    if (cards.length) result[cat] = cards
-  }
-  return result
-})
+async function editCollection(id) {
+  await collections.editCollection(id)
+  router.push({ name: 'collection-builder' })
+}
 
-function openCollectionModal() {
-  colForm.value = { name: collection.value.name || 'Minha Coleção', text:'', loading:false, msg:'' }
-  showColModal.value = true
+async function removeCollection(col) {
+  if (!confirm(`Excluir a coleção "${col.name}"?`)) return
+  await collections.removeCollection(col.id)
 }
 
 async function importCollection() {
   if (!colForm.value.text.trim()) { colForm.value.msg = '❌ Cole a lista.'; return }
   colForm.value.loading = true; colForm.value.msg = ''
   try {
-    const { data } = await axios.post('/api/collection/import/', { text: colForm.value.text })
-    collection.value = {
-      name: colForm.value.name,
-      cards: data.cards, bySet: data.by_set,
-      byRarity: data.by_rarity, byCategory: data.by_category,
-      stats: data.stats,
+    const { data } = await api.post('/collection/import/', { text: colForm.value.text })
+
+    // A lista importada vira o rascunho e já é salva como uma coleção nomeada
+    collections.clearDraft()
+    collections.renameDraft(colForm.value.name || 'Nova Coleção')
+    for (const card of data.cards) collections.addCard(card, card.qty)
+
+    const result = await collections.saveDraft()
+    if (result.error) {
+      colForm.value.msg = `❌ ${result.error}`
+      return
     }
-    localStorage.setItem('mtg_collection', JSON.stringify(collection.value))
-    colForm.value.msg = `✔ ${data.stats.total_unique} cartas importadas!`
-    setTimeout(() => { showColModal.value = false }, 1000)
+
+    const faltando = data.not_found?.length ? ` (${data.not_found.length} não encontradas)` : ''
+    colForm.value.msg = `✔ ${data.stats.total_unique} cartas importadas!${faltando}`
+    setTimeout(() => { showColModal.value = false }, 1200)
   } catch(e) {
     colForm.value.msg = '❌ Erro ao importar.'
     console.error(e)

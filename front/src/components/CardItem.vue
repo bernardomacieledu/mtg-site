@@ -9,9 +9,9 @@
 
       <!-- Set switcher overlay -->
       <Transition name="fade">
-        <div v-if="hovering && card.sets.length > 1" class="set-overlay">
+        <div v-if="hovering && (card.sets?.length || 0) > 1" class="set-overlay">
           <button
-            v-for="s in card.sets"
+            v-for="s in (card.sets || [])"
             :key="s.code"
             class="set-btn"
             :class="{ active: activeSet === s.code }"
@@ -30,6 +30,11 @@
 
       <!-- Click hint -->
       <div v-if="hovering" class="detail-hint">Ver detalhes ▸</div>
+
+      <!-- Quantidade já na coleção em montagem -->
+      <div v-if="inCollection > 0" class="qty-badge" title="Cópias na coleção em montagem">
+        {{ inCollection }}×
+      </div>
     </div>
 
     <!-- Body -->
@@ -46,7 +51,7 @@
     <div class="card-footer">
       <div class="footer-sets">
         <img
-          v-for="s in card.sets.slice(0,6)"
+          v-for="s in (card.sets || []).slice(0,6)"
           :key="s.code"
           :src="`https://svgs.scryfall.io/sets/${s.code.toLowerCase()}.svg`"
           :title="`${s.name} · ${s.released_at}`"
@@ -55,7 +60,22 @@
           @error="e => e.target.style.display='none'"
         />
       </div>
-      <span :class="['rarity-badge', `rarity-${card.rarity}`]">{{ card.rarity }}</span>
+      <div class="footer-right">
+        <span :class="['rarity-badge', `rarity-${card.rarity}`]">{{ card.rarity }}</span>
+        <div class="collect-actions">
+          <button
+            v-if="inCollection > 0"
+            class="collect-btn"
+            title="Remover uma cópia da coleção"
+            @click.stop="collections.removeCard(card.name)"
+          >−</button>
+          <button
+            class="collect-btn add"
+            :title="`Adicionar ${card.name} à coleção`"
+            @click.stop="addToCollection"
+          >+</button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -65,16 +85,29 @@ import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMana } from '@/composables/useMana'
 import { getCardImages } from '@/composables/api'
+import { useCollectionsStore } from '@/stores/collections'
 
 const props  = defineProps({ card: { type: Object, required: true } })
 const router = useRouter()
 const { renderMana } = useMana()
 
+const collections = useCollectionsStore()
+
 const hovering   = ref(false)
-const activeSet  = ref(props.card.sets[0]?.code || '')
+const activeSet  = ref(props.card.sets?.[0]?.code || '')
 const imageCache = ref({ [activeSet.value]: props.card.image_url_normal })
 
-const currentImage = computed(() => imageCache.value[activeSet.value] || props.card.image_url_normal)
+const currentImage  = computed(() => imageCache.value[activeSet.value] || props.card.image_url_normal)
+const inCollection  = computed(() => collections.qtyOf(props.card.name))
+
+function addToCollection() {
+  collections.addCard({
+    ...props.card,
+    set:       activeSet.value,
+    set_name:  props.card.sets?.find(s => s.code === activeSet.value)?.name || activeSet.value,
+    image_url: currentImage.value,
+  })
+}
 
 function goToDetail() {
   router.push({ name: 'card-detail', params: { name: props.card.name } })
@@ -141,6 +174,24 @@ async function switchSet(s) {
 
 .card-footer   { background:rgba(0,0,0,0.22); border-top:1px solid rgba(184,134,11,0.12); padding:9px 15px; display:flex; align-items:center; justify-content:space-between; }
 .footer-sets   { display:flex; gap:4px; }
+.footer-right  { display:flex; align-items:center; gap:8px; }
+.collect-actions { display:flex; gap:3px; }
+.collect-btn {
+  width:22px; height:22px; line-height:1;
+  background:rgba(0,0,0,0.4); border:1px solid rgba(184,134,11,0.4);
+  color:var(--gold); border-radius:2px; cursor:pointer; font-size:0.9rem;
+  transition:all 0.2s;
+}
+.collect-btn:hover { background:var(--gold); color:var(--obsidian); }
+.collect-btn.add   { border-color:var(--gold); }
+
+.qty-badge {
+  position:absolute; top:20px; left:20px;
+  background:var(--gold); color:var(--obsidian);
+  font-family:'Cinzel',serif; font-size:0.66rem; font-weight:700;
+  padding:2px 7px; border-radius:2px;
+  box-shadow:0 2px 8px rgba(0,0,0,0.6);
+}
 .footer-set-icon { width:18px; height:18px; filter:invert(0.8) sepia(0.2); opacity:0.5; cursor:pointer; transition:all 0.2s; }
 .footer-set-icon:hover { opacity:1; transform:scale(1.2); }
 </style>

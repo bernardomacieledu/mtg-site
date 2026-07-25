@@ -132,7 +132,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import axios from 'axios'
+import api from '@/composables/api'
 import PlayerInfo      from './game/PlayerInfo.vue'
 import ManaPool        from './game/ManaPool.vue'
 import Hand            from './game/Hand.vue'
@@ -184,7 +184,7 @@ const phaseLabel = computed(() => {
 })
 
 async function loadGame() {
-  const { data } = await axios.get(`/api/game/${props.gameId}/`)
+  const { data } = await api.get(`/game/${props.gameId}/`)
   state.value = data
 }
 
@@ -192,7 +192,7 @@ async function action(type, payload = {}) {
   if (isLoading.value) return
   isLoading.value = true
   try {
-    const { data } = await axios.post(`/api/game/${props.gameId}/action/`, {
+    const { data } = await api.post(`/game/${props.gameId}/action/`, {
       action: type, pid: 'p1', payload,
     })
     if (data.state) state.value = data.state

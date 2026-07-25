@@ -59,35 +59,93 @@ def is_legendary(type_line: str) -> bool:
     return bool(type_line and 'Legendary' in type_line)
 
 
+QTY_RE = re.compile(r'^(?:(\d+)\s*[xX]?\s+)?(.+?)$')
+
+
 def parse_deck_text(text: str) -> list:
+    """
+    Aceita os formatos mais comuns de decklist:
+        4 Lightning Bolt
+        4x Lightning Bolt
+        Lightning Bolt              (sem quantidade -> 1)
+        1 Sol Ring (LTR) 123        (código de set/número são ignorados)
+        SB: 2 Duress                (sideboard)
+        // comentário  ou  # comentário
+    """
     entries = []
     for line in text.strip().splitlines():
         line = line.strip()
-        if not line or line.startswith('//') or line.startswith('#'):
+        if not line or line.startswith(('//', '#')):
             continue
-        parts = line.split(' ', 1)
-        if len(parts) == 2 and parts[0].isdigit():
-            entries.append({'qty': int(parts[0]), 'name': parts[1].strip()})
-        elif len(parts) == 1 and not parts[0].isdigit():
-            entries.append({'qty': 1, 'name': parts[0].strip()})
+
+        # remove marcadores de seção usados por sites de deck
+        low = line.lower()
+        if low in ('deck', 'sideboard', 'commander', 'maybeboard', 'companion'):
+            continue
+        for prefix in ('SB:', 'sb:', 'MB:', 'mb:'):
+            if line.startswith(prefix):
+                line = line[len(prefix):].strip()
+
+        match = QTY_RE.match(line)
+        if not match:
+            continue
+
+        qty  = int(match.group(1)) if match.group(1) else 1
+        name = match.group(2).strip()
+
+        # tira sufixos "(SET) 123", "[SET]" e números de coleção soltos no fim
+        name = re.sub(r'\s*[\(\[][A-Za-z0-9]{2,6}[\)\]].*$', '', name).strip()
+        name = re.sub(r'\s+\d+\s*$', '', name).strip()
+        # cartas de dupla face: usa a primeira face
+        name = name.split(' // ')[0].strip()
+
+        if name and not name.isdigit():
+            entries.append({'qty': max(1, min(qty, 999)), 'name': name})
     return entries
 
 
-def format_card(row: dict, qty: int) -> dict:
+def fetch_prints_bulk(names: list) -> dict:
+    """
+    Busca TODAS as impressões de várias cartas em uma única query.
+
+    O código original fazia 2 queries por carta (uma para achar a carta e outra
+    para as impressões); uma lista de 100 cartas gerava 200 idas ao banco.
+    """
+    if not names:
+        return {}
+
+    placeholders = ', '.join(['%s'] * len(names))
+    with connection.cursor() as cur:
+        cur.execute(f"""
+            SELECT name, mana_cost, cmc, type_line, oracle_text, rarity,
+                   image_url_normal, set_code, release_date, scryfall_id
+            FROM cards
+            WHERE LOWER(name) IN ({placeholders}) AND image_url_normal IS NOT NULL
+            ORDER BY release_date DESC
+        """, [n.lower() for n in names])
+        cols = ['name', 'mana_cost', 'cmc', 'type_line', 'oracle_text', 'rarity',
+                'image_url_normal', 'set_code', 'release_date', 'scryfall_id']
+        grouped = {}
+        for row in cur.fetchall():
+            item = dict(zip(cols, row))
+            grouped.setdefault(item['name'].lower(), []).append(item)
+        return grouped
+
+
+def format_card(row: dict, qty: int, prints: list | None = None) -> dict:
     type_line = row.get('type_line') or ''
     mana_cost = row.get('mana_cost') or ''
-    colors = list(set(re.findall(r'\{([WUBRG])\}', mana_cost)))
+    colors = sorted(set(re.findall(r'\{([WUBRG])\}', mana_cost)))
 
-    # Busca todas as impressões disponíveis
-    prints = fetch_all_prints_local(row['name'])
-    prints_list = []
-    for p in prints:
-        prints_list.append({
-            'set_code':    p.get('set_code', ''),
-            'image_url':   p.get('image_url_normal', ''),
-            'release_date': str(p.get('release_date', '')) if p.get('release_date') else '',
-            'scryfall_id': p.get('scryfall_id', ''),
-        })
+    if prints is None:
+        prints = fetch_all_prints_local(row['name'])
+
+    prints_list = [{
+        'set_code':     p.get('set_code', ''),
+        'image_url':    p.get('image_url_normal', ''),
+        'release_date': str(p.get('release_date', '')) if p.get('release_date') else '',
+        'scryfall_id':  p.get('scryfall_id', ''),
+    } for p in prints]
 
     return {
         'name':        row['name'],
@@ -114,13 +172,28 @@ def format_card(row: dict, qty: int) -> dict:
 
 
 def process_entries(entries):
-    results, not_found = [], []
+    """Resolve a lista inteira com 1 query, somando quantidades de nomes repetidos."""
+    merged = {}
+    order  = []
     for entry in entries:
-        row = fetch_card_local(entry['name'])
-        if row:
-            results.append(format_card(row, entry['qty']))
+        key = entry['name'].strip().lower()
+        if not key:
+            continue
+        if key in merged:
+            merged[key]['qty'] += entry['qty']
         else:
-            not_found.append(entry['name'])
+            merged[key] = {'name': entry['name'].strip(), 'qty': entry['qty']}
+            order.append(key)
+
+    grouped = fetch_prints_bulk([merged[k]['name'] for k in order])
+
+    results, not_found = [], []
+    for key in order:
+        prints = grouped.get(key)
+        if prints:
+            results.append(format_card(prints[0], merged[key]['qty'], prints))
+        else:
+            not_found.append(merged[key]['name'])
     return results, not_found
 
 

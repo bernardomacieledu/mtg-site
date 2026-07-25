@@ -4,7 +4,7 @@
  * ou usando localStorage quando não logado.
  */
 import { ref, computed } from 'vue'
-import axios from 'axios'
+import api from '@/composables/api'
 import { useAuthStore } from '@/stores/auth'
 
 // Singleton state
@@ -22,7 +22,7 @@ export function useLibrary() {
   async function loadDecks() {
     if (auth.isLoggedIn) {
       try {
-        const { data } = await axios.get('/api/auth/decks/')
+        const { data } = await api.get('/auth/decks/')
         decks.value = data
       } catch { decks.value = [] }
     } else {
@@ -32,7 +32,7 @@ export function useLibrary() {
 
   async function getDeck(id) {
     if (auth.isLoggedIn) {
-      const { data } = await axios.get(`/api/auth/decks/${id}/`)
+      const { data } = await api.get(`/auth/decks/${id}/`)
       return data
     } else {
       const all = JSON.parse(localStorage.getItem('mtg_decks') || '[]')
@@ -42,7 +42,7 @@ export function useLibrary() {
 
   async function saveDeck(deck) {
     if (auth.isLoggedIn) {
-      const { data } = await axios.post('/api/auth/decks/save/', {
+      const { data } = await api.post('/auth/decks/save/', {
         id:           deck.id || undefined,
         name:         deck.name,
         raw_text:     deck.raw_text,
@@ -76,7 +76,7 @@ export function useLibrary() {
 
   async function deleteDeck(id) {
     if (auth.isLoggedIn) {
-      await axios.delete(`/api/auth/decks/${id}/delete/`)
+      await api.delete(`/auth/decks/${id}/delete/`)
     } else {
       const all = JSON.parse(localStorage.getItem('mtg_decks') || '[]')
       localStorage.setItem('mtg_decks', JSON.stringify(all.filter(d => d.id !== String(id))))
@@ -89,7 +89,7 @@ export function useLibrary() {
   async function loadCollection() {
     if (auth.isLoggedIn) {
       try {
-        const { data } = await axios.get('/api/auth/collection/')
+        const { data } = await api.get('/auth/collection/')
         if (data.exists) {
           collection.value = data
           activeImgs.value = data.active_imgs || {}
@@ -105,7 +105,7 @@ export function useLibrary() {
   async function saveCollection(colData) {
     collection.value = colData
     if (auth.isLoggedIn) {
-      await axios.post('/api/auth/collection/save/', {
+      await api.post('/auth/collection/save/', {
         name:        colData.name,
         cards:       colData.cards,
         by_set:      colData.bySet || colData.by_set,
@@ -126,9 +126,9 @@ export function useLibrary() {
 
     if (auth.isLoggedIn) {
       if (deckId) {
-        await axios.patch(`/api/auth/decks/${deckId}/imgs/`, { active_imgs: { [name]: url } })
+        await api.patch(`/auth/decks/${deckId}/imgs/`, { active_imgs: { [name]: url } })
       } else {
-        await axios.patch('/api/auth/collection/imgs/', { active_imgs: { [name]: url } })
+        await api.patch('/auth/collection/imgs/', { active_imgs: { [name]: url } })
       }
     } else {
       const saved = JSON.parse(localStorage.getItem('mtg_active_imgs') || '{}')

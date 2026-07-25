@@ -247,7 +247,7 @@
 
 <script setup>
 import { ref, computed } from 'vue'
-import axios from 'axios'
+import api from '@/composables/api'
 import { useMana } from '@/composables/useMana'
 
 // ── Inline CollectionCard component ──────────────────────────────────────────
@@ -344,7 +344,7 @@ async function doImport() {
   byCategory.value = {}; notFound.value = []; stats.value = null
 
   try {
-    const { data } = await axios.post('/api/collection/import/', { text: importText.value })
+    const { data } = await api.post('/collection/import/', { text: importText.value })
     allCards.value   = data.cards
     bySets.value     = data.by_set
     byRarity.value   = data.by_rarity
@@ -362,7 +362,7 @@ async function doImport() {
 }
 
 async function doExportJson() {
-  const { data } = await axios.post('/api/collection/export/', {
+  const { data } = await api.post('/collection/export/', {
     name: collectionName.value, cards: allCards.value,
   })
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })

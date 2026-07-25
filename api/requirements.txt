@@ -1,7 +1,7 @@
 Django>=4.2,<5.1
 djangorestframework>=3.15
 django-cors-headers>=4.3
-
-# Driver MySQL — escolha um:
-mysqlclient>=2.2.0
-# PyMySQL>=1.1.0   # alternativa puro-Python (sem libmysqlclient-dev)
+PyJWT>=2.8            # usado por auth_app.views (faltava no requirements original)
+PyMySQL>=1.1.0        # driver usado em core/settings.py
+gunicorn>=22.0
+whitenoise>=6.6

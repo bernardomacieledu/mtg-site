@@ -8,6 +8,37 @@ from .models import Card, Rule
 from .scryfall import get_set_names, get_mana_map
 
 
+def _safe_int(value, default, minimum=None, maximum=None):
+    """Converte para int sem estourar 500 quando o usuário manda lixo na query string."""
+    try:
+        result = int(value)
+    except (TypeError, ValueError):
+        return default
+    if minimum is not None:
+        result = max(minimum, result)
+    if maximum is not None:
+        result = min(maximum, result)
+    return result
+
+
+def _is_iso_date(value):
+    import datetime
+    if not value:
+        return False
+    try:
+        datetime.date.fromisoformat(value)
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
+def _safe_float(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _build_where(search='', set_code='', rarity='', card_type='', cmc='', cmc_op='=', date_from='', date_to='', colors=''):
     where  = ['image_url_normal IS NOT NULL']
     params = []
@@ -24,23 +55,29 @@ def _build_where(search='', set_code='', rarity='', card_type='', cmc='', cmc_op
     if card_type:
         where.append('type_line LIKE %s')
         params.append(f'%{card_type}%')
-    if cmc != '' and cmc is not None:
+    cmc_value = _safe_float(cmc) if cmc not in ('', None) else None
+    if cmc_value is not None:
         op = cmc_op if cmc_op in ('=', '<=', '>=', '<', '>') else '='
         where.append(f'cmc {op} %s')
-        params.append(float(cmc))
-    if date_from:
+        params.append(cmc_value)
+    if _is_iso_date(date_from):
         where.append('release_date >= %s')
         params.append(date_from)
-    if date_to:
+    if _is_iso_date(date_to):
         where.append('release_date <= %s')
         params.append(date_to)
 
     if colors:
         for col in colors.split(','):
-            col = col.strip()
-            if col:
-                where.append('mana_cost LIKE %s')
-                params.append(f'%{col}%')
+            col = col.strip().upper()
+            if col in ('W', 'U', 'B', 'R', 'G'):
+                # Casa o símbolo exato ({W}) e híbridos ({W/U}, {2/W}) — antes um
+                # LIKE '%W%' solto casava com qualquer texto que tivesse a letra.
+                where.append("(mana_cost LIKE %s OR mana_cost LIKE %s OR mana_cost LIKE %s)")
+                params += [f'%{{{col}}}%', f'%{{{col}/%', f'%/{col}}}%']
+            elif col == 'C':
+                where.append("(mana_cost IS NULL OR mana_cost = '' OR "
+                             "mana_cost NOT REGEXP '\\{(W|U|B|R|G)')")
     return ' AND '.join(where), params
 
 
@@ -112,8 +149,8 @@ class CardListView(APIView):
         cmc_op    = p.get('cmc_op', '=').strip()
         date_from = p.get('date_from', '').strip()
         date_to   = p.get('date_to', '').strip()
-        page      = max(1, int(p.get('page', 1)))
-        page_size = min(48, max(1, int(p.get('page_size', 24))))
+        page      = _safe_int(p.get('page', 1), 1, minimum=1)
+        page_size = _safe_int(p.get('page_size', 24), 24, minimum=1, maximum=48)
 
         colors    = p.get('colors', '').strip()
         where_sql, params = _build_where(search, set_code, rarity, card_type, cmc, cmc_op, date_from, date_to, colors)
@@ -166,35 +203,112 @@ class CardImagesView(APIView):
 
 
 class CollectionsView(APIView):
+    """
+    GET /api/collections/
+    Lista as coleções (sets) disponíveis no banco.
+
+    Query params:
+      q       — busca por nome ou código do set
+      limit   — nº de sets no bloco "latest" (padrão 12)
+      year    — filtra por ano de lançamento
+    """
+
     def get(self, request):
+        q     = request.query_params.get('q', '').strip().lower()
+        year  = request.query_params.get('year', '').strip()
+        limit = _safe_int(request.query_params.get('limit', 12), 12, minimum=1, maximum=60)
+
         with connection.cursor() as cur:
             cur.execute("""
-                SELECT set_code, COUNT(*) as total, MIN(release_date) as release_date
-                FROM cards WHERE image_url_normal IS NOT NULL
-                GROUP BY set_code ORDER BY release_date DESC
+                SELECT set_code,
+                       COUNT(*)                AS total,
+                       COUNT(DISTINCT name)    AS uniques,
+                       MIN(release_date)       AS release_date
+                FROM cards
+                WHERE image_url_normal IS NOT NULL
+                GROUP BY set_code
+                ORDER BY release_date DESC
             """)
             rows = cur.fetchall()
 
         set_names = get_set_names()
         sets = []
-        for set_code, count, release_date in rows:
+        for set_code, count, uniques, release_date in rows:
             info = set_names.get(set_code, {})
+            name = info.get('name', set_code)
+            released = info.get('released_at') or (str(release_date) if release_date else '')
+            if q and q not in name.lower() and q not in (set_code or '').lower():
+                continue
+            if year and not released.startswith(year):
+                continue
             sets.append({
                 'code':         set_code,
-                'name':         info.get('name', set_code),
-                'released_at':  info.get('released_at', str(release_date) if release_date else ''),
+                'name':         name,
+                'set_type':     info.get('set_type', ''),
+                'released_at':  released,
                 'icon_svg_uri': info.get('icon_svg_uri',
-                    f'https://svgs.scryfall.io/sets/{set_code.lower()}.svg'),
+                    f'https://svgs.scryfall.io/sets/{(set_code or "").lower()}.svg'),
                 'card_count':   count,
+                'unique_count': uniques,
             })
 
+        # Ordena por data de lançamento (mais recentes primeiro), sem depender do MIN do banco
+        sets.sort(key=lambda item: item['released_at'] or '', reverse=True)
+
         by_year = {}
-        for s in sets:
-            year = s['released_at'][:4] if s['released_at'] else 'Desconhecido'
-            by_year.setdefault(year, []).append(s)
+        for item in sets:
+            key = item['released_at'][:4] if item['released_at'] else 'Desconhecido'
+            by_year.setdefault(key, []).append(item)
 
         years = [{'year': y, 'sets': sl} for y, sl in sorted(by_year.items(), reverse=True)]
-        return Response({'total_sets': len(sets), 'years': years})
+
+        return Response({
+            'total_sets':     len(sets),
+            'total_cards':    sum(item['card_count'] for item in sets),
+            'latest':         sets[:limit],
+            'available_years': [y['year'] for y in years],
+            'years':          years,
+        })
+
+
+class SetDetailView(APIView):
+    """GET /api/collections/<code>/ — resumo de uma coleção específica."""
+
+    def get(self, request, code):
+        code = (code or '').strip()
+        with connection.cursor() as cur:
+            cur.execute("""
+                SELECT COUNT(*)             AS total,
+                       COUNT(DISTINCT name) AS uniques,
+                       MIN(release_date)    AS released,
+                       AVG(cmc)             AS avg_cmc
+                FROM cards
+                WHERE set_code = %s AND image_url_normal IS NOT NULL
+            """, [code])
+            total, uniques, released, avg_cmc = cur.fetchone()
+
+            cur.execute("""
+                SELECT rarity, COUNT(*) FROM cards
+                WHERE set_code = %s AND image_url_normal IS NOT NULL
+                GROUP BY rarity
+            """, [code])
+            rarities = {row[0] or 'common': row[1] for row in cur.fetchall()}
+
+        if not total:
+            return Response({'error': 'Coleção não encontrada.'}, status=404)
+
+        info = get_set_names().get(code, {})
+        return Response({
+            'code':         code,
+            'name':         info.get('name', code),
+            'released_at':  info.get('released_at') or (str(released) if released else ''),
+            'icon_svg_uri': info.get('icon_svg_uri',
+                f'https://svgs.scryfall.io/sets/{code.lower()}.svg'),
+            'card_count':   total,
+            'unique_count': uniques,
+            'avg_cmc':      round(float(avg_cmc), 2) if avg_cmc is not None else 0,
+            'rarities':     rarities,
+        })
 
 
 class RulesView(APIView):

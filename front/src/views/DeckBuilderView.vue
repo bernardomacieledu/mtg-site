@@ -258,7 +258,7 @@
 
 <script setup>
 import { ref, computed } from 'vue'
-import axios from 'axios'
+import api from '@/composables/api'
 import { useMana } from '@/composables/useMana'
 
 const { symbols } = useMana()
@@ -320,7 +320,7 @@ async function importDeck() {
   stats.value = null
 
   try {
-    const { data } = await axios.post('/api/deck/import/', { text: importText.value })
+    const { data } = await api.post('/deck/import/', { text: importText.value })
     allCards.value       = data.cards
     categories.value     = data.categories
     legendaryCreatures.value = data.legendary_creatures
@@ -345,7 +345,7 @@ function setCommander(card) {
 }
 
 async function exportDeck() {
-  const { data } = await axios.post('/api/deck/export/', {
+  const { data } = await api.post('/deck/export/', {
     name: deckName.value,
     commander: commander.value,
     cards: allCards.value,

@@ -17,6 +17,17 @@
             </router-link>
           </li>
           <li>
+            <router-link to="/colecoes" :class="{ active: $route.name === 'sets' }">
+              ❖ Coleções
+            </router-link>
+          </li>
+          <li>
+            <router-link to="/colecao/montar"
+              :class="{ active: ['collection-builder','collection-import'].includes($route.name) }">
+              📦 Montar
+            </router-link>
+          </li>
+          <li>
             <router-link to="/regras" :class="{ active: $route.name === 'rules' }">
               🏛 Regras
             </router-link>
@@ -41,6 +52,8 @@
       <Transition name="drawer">
         <div v-if="mobileOpen" class="mobile-drawer">
           <router-link to="/"           @click="mobileOpen=false">⚔ Cartas</router-link>
+          <router-link to="/colecoes"   @click="mobileOpen=false">❖ Coleções</router-link>
+          <router-link to="/colecao/montar" @click="mobileOpen=false">📦 Montar Coleção</router-link>
           <router-link to="/regras"     @click="mobileOpen=false">🏛 Regras</router-link>
           <router-link to="/biblioteca" @click="mobileOpen=false">📚 Biblioteca</router-link>
           <router-link v-if="!auth.isLoggedIn" to="/login" @click="mobileOpen=false">⚔ Entrar</router-link>
@@ -55,6 +68,8 @@
       </Transition>
     </RouterView>
 
+    <CollectionDock />
+
     <Transition name="fade">
       <button v-if="showScrollTop" class="scroll-top-btn" @click="scrollTop" title="Voltar ao topo">▲</button>
     </Transition>
@@ -62,9 +77,11 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import UserMenu from '@/components/UserMenu.vue'
+import CollectionDock from '@/components/CollectionDock.vue'
 
 const auth         = useAuthStore()
 const mobileOpen   = ref(false)
@@ -73,9 +90,12 @@ const showScrollTop = ref(false)
 function scrollTop() { window.scrollTo({ top: 0, behavior: 'smooth' }) }
 function onScroll()  { showScrollTop.value = window.scrollY > 400 }
 
+const route = useRoute()
+watch(() => route.fullPath, () => { mobileOpen.value = false })
+
 onMounted(() => {
   auth.initAuth()
-  window.addEventListener('scroll', onScroll)
+  window.addEventListener('scroll', onScroll, { passive: true })
 })
 onUnmounted(() => window.removeEventListener('scroll', onScroll))
 </script>
