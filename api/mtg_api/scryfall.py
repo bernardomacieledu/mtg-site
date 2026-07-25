@@ -25,15 +25,39 @@ def fetch_scryfall(url: str, cache_file: str) -> dict:
 
 
 def get_set_names() -> dict:
+    """
+    Catálogo de coleções: banco primeiro, Scryfall como complemento.
+
+    O banco é preenchido por `manage.py seed_sets` e não depende de rede, então
+    o nome completo e o ícone continuam corretos mesmo offline.
+    """
+    catalog = {}
+
+    try:
+        from .models import CardSet
+        for item in CardSet.objects.all().values(
+                'code', 'name', 'released_at', 'icon_svg_uri', 'set_type'):
+            catalog[item['code']] = {
+                'name':         item['name'],
+                'released_at':  item['released_at'],
+                'icon_svg_uri': item['icon_svg_uri'],
+                'set_type':     item['set_type'],
+            }
+    except Exception:
+        # Tabela ainda não migrada: segue só com o cache do Scryfall.
+        pass
+
     data = fetch_scryfall('https://api.scryfall.com/sets', 'sets_cache.json')
-    return {
-        s['code']: {
-            'name': s['name'],
-            'released_at': s.get('released_at', ''),
+    for s in data.get('data', []):
+        # O banco tem prioridade; o cache só preenche o que faltar.
+        catalog.setdefault(s['code'], {
+            'name':         s['name'],
+            'released_at':  s.get('released_at', ''),
             'icon_svg_uri': s.get('icon_svg_uri', ''),
-        }
-        for s in data.get('data', [])
-    }
+            'set_type':     s.get('set_type', ''),
+        })
+
+    return catalog
 
 
 def get_mana_map() -> dict:

@@ -35,3 +35,29 @@ class Rule(models.Model):
 
     def __str__(self):
         return f"{self.rule_number}: {self.rule_text[:60]}"
+
+
+class CardSet(models.Model):
+    """
+    Catálogo de coleções (nome, ícone, data), gravado no banco.
+
+    Antes esses dados vinham de uma chamada ao Scryfall a cada request: quando
+    ela falhava, a interface exibia o código da coleção no lugar do nome e o
+    ícone quebrava. Persistir aqui torna a exibição independente de rede.
+    """
+    code         = models.CharField(max_length=10, primary_key=True)
+    name         = models.CharField(max_length=255)
+    set_type     = models.CharField(max_length=50, blank=True, default='')
+    released_at  = models.CharField(max_length=10, blank=True, default='')
+    icon_svg_uri = models.CharField(max_length=512, blank=True, default='')
+    card_count   = models.IntegerField(default=0)
+    parent_code  = models.CharField(max_length=10, blank=True, default='')
+    digital      = models.BooleanField(default=False)
+    updated_at   = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'mtg_sets'
+        ordering = ['-released_at']
+
+    def __str__(self):
+        return f'{self.name} ({self.code.upper()})'

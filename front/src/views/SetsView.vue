@@ -15,7 +15,7 @@
         <input
           v-model="query"
           class="medieval-input"
-          placeholder="Buscar coleção por nome ou código..."
+          placeholder="Buscar por nome (Bloomburrow) ou código (BLB)..."
           @keyup.enter="fetchSets"
         />
         <div class="year-chips">
@@ -51,7 +51,14 @@
               @click="openSet(set)"
             >
               <span class="upcoming-badge">{{ daysUntil(set.released_at) }}</span>
-              <img :src="set.icon_svg_uri" :alt="set.code" class="set-tile-icon" @error="hideIcon" />
+              <img
+                v-if="hasIcon(set)"
+                :src="set.icon_svg_uri"
+                :alt="set.code"
+                class="set-tile-icon"
+                @error="markIconFailed(set.code)"
+              />
+              <div v-else class="set-monogram">{{ set.code.toUpperCase() }}</div>
               <div class="set-tile-body">
                 <h3 class="set-tile-name">{{ set.name }}</h3>
                 <div class="set-tile-meta">
@@ -84,11 +91,13 @@
             >
               <span v-if="index === 0" class="newest-badge">MAIS RECENTE</span>
               <img
+                v-if="hasIcon(set)"
                 :src="set.icon_svg_uri"
                 :alt="set.code"
                 class="set-tile-icon"
-                @error="hideIcon"
+                @error="markIconFailed(set.code)"
               />
+              <div v-else class="set-monogram">{{ set.code.toUpperCase() }}</div>
               <div class="set-tile-body">
                 <h3 class="set-tile-name">{{ set.name }}</h3>
                 <div class="set-tile-meta">
@@ -119,12 +128,22 @@
               class="set-tile"
               @click="openSet(set)"
             >
-              <img :src="set.icon_svg_uri" :alt="set.code" class="set-tile-icon sm" @error="hideIcon" />
+              <img
+                v-if="hasIcon(set)"
+                :src="set.icon_svg_uri"
+                :alt="set.code"
+                class="set-tile-icon sm"
+                @error="markIconFailed(set.code)"
+              />
+              <div v-else class="set-monogram sm">{{ set.code.toUpperCase() }}</div>
               <div class="set-tile-body">
-                <h3 class="set-tile-name sm">{{ set.name }}</h3>
+                <h3 class="set-tile-name sm" :title="`${set.name} (${set.code.toUpperCase()})`">
+                  {{ set.name }}
+                </h3>
                 <div class="set-tile-meta">
                   <span class="set-code-badge">{{ set.code.toUpperCase() }}</span>
                   <span>{{ formatDate(set.released_at) }}</span>
+                  <span class="meta-count">· {{ set.unique_count }} cartas</span>
                 </div>
               </div>
               <div class="set-tile-qty">{{ set.unique_count }}</div>
@@ -192,8 +211,16 @@ function openSet(set) {
   router.push({ name: 'cards', query: { set: set.code } })
 }
 
-function hideIcon(event) {
-  event.target.style.visibility = 'hidden'
+const iconesQuebrados = ref(new Set())
+
+function hasIcon(set) {
+  return !!set.icon_svg_uri && !iconesQuebrados.value.has(set.code)
+}
+
+function markIconFailed(code) {
+  // Nem toda coleção tem ícone publicado; em vez de deixar um vazio,
+  // exibimos o código como monograma.
+  iconesQuebrados.value = new Set(iconesQuebrados.value).add(code)
 }
 
 function daysUntil(value) {
@@ -287,12 +314,25 @@ onMounted(fetchSets)
 .set-tile-icon { width: 52px; height: 52px; filter: invert(0.85) sepia(0.3); opacity: 0.9; }
 .set-tile-icon.sm { width: 34px; height: 34px; flex-shrink: 0; }
 
+.set-monogram {
+  width: 52px; height: 52px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid rgba(184,134,11,0.45); border-radius: 50%;
+  background: radial-gradient(circle, rgba(184,134,11,0.14), transparent);
+  font-family: 'Cinzel', serif; font-size: 0.68rem; letter-spacing: 1px;
+  color: var(--gold); text-align: center; line-height: 1;
+}
+.set-monogram.sm { width: 34px; height: 34px; font-size: 0.52rem; }
+
 .set-tile-body { flex: 1; min-width: 0; }
 .set-tile-name {
   font-family: 'Cinzel', serif; font-size: 1rem; color: var(--aged-white);
   margin: 8px 0 6px; line-height: 1.3;
 }
-.set-tile-name.sm { font-size: 0.82rem; margin: 0 0 5px; }
+.set-tile-name.sm {
+  font-size: 0.82rem; margin: 0 0 5px;
+  overflow-wrap: anywhere;
+}
 .set-tile-meta {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   font-size: 0.68rem; color: var(--parchment-xdk); font-family: 'Cinzel', serif;
@@ -301,6 +341,7 @@ onMounted(fetchSets)
   border: 1px solid rgba(184,134,11,0.4); color: var(--gold);
   padding: 1px 6px; border-radius: 2px; letter-spacing: 1px; font-size: 0.6rem;
 }
+.meta-count { color: var(--parchment-xdk); }
 .set-tile-count { margin-top: 10px; font-size: 0.78rem; color: var(--parchment-dk); }
 .set-tile-qty {
   font-family: 'Cinzel', serif; font-size: 0.72rem; color: var(--gold);
