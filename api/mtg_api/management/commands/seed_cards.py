@@ -20,6 +20,13 @@ HEADERS = {'User-Agent': 'MTGNexus-Seed/1.0', 'Accept': 'application/json'}
 # Tipos de set que não interessam para o grimório
 SKIP_SET_TYPES = {'token', 'memorabilia', 'minigame', 'funny', 'alchemy', 'treasure_chest'}
 
+# Layouts que não são cartas de baralho (fichas, emblemas, séries de arte)
+SKIP_LAYOUTS = {'token', 'double_faced_token', 'emblem', 'art_series', 'vanguard'}
+
+# Teto do DECIMAL(5,1) da coluna cmc. Cartas de brincadeira (Gleemax custa
+# {1000000}) estouram a coluna e derrubavam a importação inteira.
+MAX_CMC = 9999.9
+
 INSERT_SQL = """
     REPLACE INTO cards
         (scryfall_id, name, mana_cost, cmc, type_line, oracle_text, rarity,
@@ -93,26 +100,46 @@ def stream_bulk_cards(url):
                 yield obj
 
 
-def card_row(card):
-    """Converte um objeto do Scryfall em uma linha da tabela `cards`."""
+def card_row(card, apply_filters=True):
+    """
+    Converte um objeto do Scryfall em uma linha da tabela `cards`.
+
+    Devolve None quando a carta não deve entrar no grimório (sem imagem, ficha,
+    emblema, coleção de brincadeira ou carta digital).
+    """
+    if apply_filters:
+        if card.get('layout') in SKIP_LAYOUTS:
+            return None
+        if card.get('set_type') in SKIP_SET_TYPES:
+            return None
+        if card.get('digital'):
+            return None
+
     image = (card.get('image_uris') or {}).get('normal')
     faces = card.get('card_faces') or []
     if not image and faces:
         image = (faces[0].get('image_uris') or {}).get('normal')
+
+    if not image:
+        return None
 
     mana_cost = card.get('mana_cost') or (faces[0].get('mana_cost') if faces else '')
     oracle = card.get('oracle_text')
     if not oracle and faces:
         oracle = '\n//\n'.join(f.get('oracle_text', '') for f in faces)
 
-    if not image:
-        return None
+    # cmc fora da faixa da coluna é limitado em vez de abortar a carga
+    cmc = card.get('cmc')
+    try:
+        cmc = None if cmc is None else max(0.0, min(float(cmc), MAX_CMC))
+    except (TypeError, ValueError):
+        cmc = None
 
     return (
         card['id'],
-        card.get('name'),
+        (card.get('name') or '')[:255],
         (mana_cost or '')[:50],
-        card.get('cmc'),
+        cmc,
         (card.get('type_line') or '')[:255],
         oracle or '',
         (card.get('rarity') or '')[:20],
@@ -138,6 +165,8 @@ class Command(BaseCommand):
                             help='Pula coleções que já têm cartas no banco (permite retomar).')
         parser.add_argument('--released-only', action='store_true',
                             help='Ignora coleções ainda não lançadas (por padrão elas entram).')
+        parser.add_argument('--fresh', action='store_true',
+                            help='Esvazia a tabela cards antes de importar (limpa cargas antigas).')
         parser.add_argument('--bulk', action='store_true',
                             help='Baixa o arquivo bulk do Scryfall: bem mais rápido para pegar tudo.')
         parser.add_argument('--sets', type=str, default='',
@@ -147,11 +176,24 @@ class Command(BaseCommand):
         parser.add_argument('--delay', type=float, default=0.12,
                             help='Intervalo entre requisições, em segundos.')
 
+    rejeitadas = 0
+    explicit_sets = False
+
     def handle(self, *args, **options):
+        if options['fresh']:
+            with connection.cursor() as cursor:
+                cursor.execute('SELECT COUNT(*) FROM cards')
+                antes = cursor.fetchone()[0]
+                cursor.execute('TRUNCATE TABLE cards')
+            self.stdout.write(self.style.WARNING(f'Tabela cards esvaziada ({antes} linhas removidas).'))
+
         if options['bulk']:
             return self.import_bulk(options)
 
         codes = [c.strip().lower() for c in options['sets'].split(',') if c.strip()]
+        # Se o usuário pediu coleções nominalmente, respeita o pedido: não faz
+        # sentido filtrar por tipo quando alguém pede explicitamente um Un-set.
+        self.explicit_sets = bool(codes)
 
         if not codes:
             self.stdout.write('Buscando lista de coleções no Scryfall...')
@@ -244,15 +286,38 @@ class Command(BaseCommand):
                 self.stdout.write(f'  {imported} cartas gravadas ({seen} lidas)...')
         imported += self.flush(batch)
 
-        self.stdout.write(self.style.SUCCESS(
-            f'\nConcluído: {imported} cartas gravadas de {seen} lidas.'))
+        resumo = f'\nConcluído: {imported} cartas gravadas de {seen} lidas.'
+        if self.rejeitadas:
+            resumo += f' {self.rejeitadas} ignoradas por dados inválidos.'
+        self.stdout.write(self.style.SUCCESS(resumo))
 
     def flush(self, batch):
+        """
+        Grava o lote. Se alguma linha for rejeitada pelo MySQL, reprocessa o
+        lote linha a linha para salvar o resto — antes, um único registro
+        problemático abortava a importação inteira.
+        """
         if not batch:
             return 0
-        with connection.cursor() as cursor:
-            cursor.executemany(INSERT_SQL, batch)
-        return len(batch)
+        try:
+            with connection.cursor() as cursor:
+                cursor.executemany(INSERT_SQL, batch)
+            return len(batch)
+        except Exception as exc:
+            self.stdout.write(self.style.WARNING(
+                f'  lote rejeitado ({exc}); gravando linha a linha...'))
+            gravadas = 0
+            for row in batch:
+                try:
+                    with connection.cursor() as cursor:
+                        cursor.execute(INSERT_SQL, row)
+                    gravadas += 1
+                except Exception as row_exc:
+                    self.rejeitadas += 1
+                    if self.rejeitadas <= 5:
+                        self.stdout.write(self.style.WARNING(
+                            f'    ignorada: {row[1]!r} ({row_exc})'))
+            return gravadas
 
     def import_set(self, code, max_per_set, delay, index=1, total_sets=1):
         query = urllib.parse.urlencode({
@@ -270,7 +335,10 @@ class Command(BaseCommand):
                 self.stderr.write(self.style.WARNING(f'  {code}: falha ao buscar ({exc})'))
                 break
 
-            rows = [row for row in (card_row(c) for c in payload.get('data', [])) if row]
+            rows = [row for row in
+                    (card_row(c, apply_filters=not self.explicit_sets)
+                     for c in payload.get('data', []))
+                    if row]
             if max_per_set:
                 rows = rows[:max(0, max_per_set - imported)]
 
