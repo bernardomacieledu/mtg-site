@@ -140,6 +140,13 @@
           <router-link :to="{ name: 'cards', query: { set: activePrint?.set_code } }" class="btn-ghost">
             📜 Ver Coleção
           </router-link>
+          <a
+            :href="ligaMagicUrl(cardName)"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="btn-ghost"
+            title="Abre a busca desta carta no site da Liga Magic"
+          >💰 Preço (R$)</a>
         </div>
       </div>
 
@@ -152,15 +159,6 @@
     </div>
   </div>
 
-      <div class="preco-externo">
-        <a
-          :href="ligaMagicUrl(card.name)"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="btn-ghost liga-btn"
-        >💰 Ver preço na Liga Magic (R$)</a>
-        <span class="preco-nota">Abre a busca da carta no site da Liga Magic</span>
-      </div>
 </template>
 
 <script setup>
