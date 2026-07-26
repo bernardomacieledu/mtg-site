@@ -5,13 +5,14 @@ from .views import (CardListView, CardImagesView, CollectionsView, SetDetailView
                     card_types_list, card_prices, health)
 from .game_views import create_game, get_game, game_action, list_decks
 from .admin_api import (listar_tarefas, atualizar_tarefa, executar_tarefa,
-                        status_sistema)
+                        status_sistema, cambio)
 from .deck_views import (import_deck, export_deck,
                          import_collection, export_collection)
 
 urlpatterns = [
     # ── Administração (exige usuário com privilégio) ──
     path('admin/status/',                 status_sistema,    name='admin-status'),
+    path('admin/exchange/',               cambio,            name='admin-exchange'),
     path('admin/tasks/',                  listar_tarefas,    name='admin-tasks'),
     path('admin/tasks/<int:task_id>/',    atualizar_tarefa,  name='admin-task-update'),
     path('admin/tasks/<int:task_id>/run/', executar_tarefa,  name='admin-task-run'),

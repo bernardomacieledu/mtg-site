@@ -19,27 +19,36 @@
           </Transition>
         </div>
 
-        <div class="prints-label cinzel-caps">✦ Impressões Disponíveis</div>
-        <div class="prints-grid">
+        <div class="prints-label cinzel-caps">
+          ✦ Impressões
+          <span class="prints-dica">passe o mouse para ver · clique para fixar</span>
+        </div>
+        <div class="prints-chips" @mouseleave="hovered = null">
           <button
             v-for="p in prints"
-            :key="p.set_code"
-            class="print-btn"
-            :class="{ active: activePrint?.set_code === p.set_code }"
-            @click="activePrint = p"
-            :title="p.set_name"
+            :key="p.scryfall_id || p.set_code"
+            class="print-chip"
+            :class="{
+              fixada: fixada?.scryfall_id === p.scryfall_id,
+              espiando: hovered?.scryfall_id === p.scryfall_id,
+            }"
+            :title="`${p.set_name} · ${p.released_at}`"
+            @mouseenter="hovered = p"
+            @focus="hovered = p"
+            @click="fixada = p"
           >
             <img
+              class="chip-icone"
               :src="`https://svgs.scryfall.io/sets/${p.set_code.toLowerCase()}.svg`"
               :alt="p.set_code"
-              @error="e => e.target.style.display='none'"
+              @error="e => e.target.style.visibility='hidden'"
             />
-            <div class="print-info">
-              <span class="print-set-name">{{ p.set_name }}</span>
-              <span class="print-date">{{ p.released_at }}</span>
-            </div>
-            <span v-if="activePrint?.set_code === p.set_code" class="print-active-dot">●</span>
+            <span class="chip-codigo">{{ p.set_code.toUpperCase() }}</span>
           </button>
+        </div>
+        <div v-if="activePrint" class="print-atual">
+          {{ activePrint.set_name }}
+          <em>· {{ activePrint.released_at }}</em>
         </div>
       </div>
 
@@ -98,7 +107,15 @@
             <span class="cinzel-caps" style="font-size:0.6rem;">Consultando mercado...</span>
           </div>
 
-          <div v-else-if="prices && hasPrices" class="prices-grid">
+          <div v-if="prices?.brl" class="preco-real">
+            <span class="real-valor">R$ {{ prices.brl.toFixed(2) }}</span>
+            <span v-if="prices.brl_foil" class="real-foil">foil R$ {{ prices.brl_foil.toFixed(2) }}</span>
+            <span class="real-nota">
+              estimativa convertida de US$<template v-if="cotacao"> · câmbio {{ cotacao.toFixed(2) }}</template>
+            </span>
+          </div>
+
+          <div v-if="prices && hasPrices" class="prices-grid">
             <div v-if="prices.usd" class="price-item">
               <span class="price-label">Normal</span>
               <span class="price-value">US$ {{ prices.usd }}</span>
@@ -171,14 +188,29 @@ import { useMana } from '@/composables/useMana'
 const route          = useRoute()
 const { renderMana } = useMana()
 
-const prints        = ref([])
-const activePrint   = ref(null)
+const prints  = ref([])
+// A impressão exibida é a que o mouse está espiando; sem hover, a fixada.
+// Antes a seleção era identificada pelo código do set, e coleções com mais de
+// uma impressão (normal e promo, por exemplo) acendiam todas ao mesmo tempo.
+const fixada  = ref(null)
+const hovered = ref(null)
+const activePrint = computed(() => hovered.value || fixada.value)
 const loading       = ref(false)
 const prices        = ref(null)
 const pricesLoading = ref(false)
 
 const cardName    = computed(() => decodeURIComponent(route.params.name))
 const activeImg   = computed(() => activePrint.value?.image_url || '')
+const cotacao     = ref(null)
+
+// Recarrega o preço ao trocar de impressão; o atraso evita uma requisição por
+// carta ao passar o mouse pela lista.
+let timerPreco = null
+watch(() => activePrint.value?.scryfall_id, (id) => {
+  if (!id) return
+  clearTimeout(timerPreco)
+  timerPreco = setTimeout(loadPrices, 350)
+})
 const currentCard = computed(() => activePrint.value)
 const hasPrices   = computed(() =>
   prices.value && Object.values(prices.value).some(v => v !== null && v !== undefined)
@@ -192,8 +224,9 @@ async function load() {
 
   try {
     const { data } = await getCardImages(cardName.value)
-    prints.value      = data.images || []
-    activePrint.value = prints.value[0] || null
+    prints.value  = data.images || []
+    fixada.value  = prints.value[0] || null
+    hovered.value = null
   } catch (e) {
     console.error(e)
   } finally {
@@ -203,6 +236,7 @@ async function load() {
   // Busca preços em paralelo (não bloqueia a UI)
   try {
     const { data } = await getCardPrices(cardName.value, activePrint.value?.scryfall_id)
+    cotacao.value = data.usd_brl || null
     prices.value = data.prices
   } catch {
     prices.value = null
@@ -245,6 +279,31 @@ watch(cardName, load)
 .img-fade-enter-from, .img-fade-leave-to { opacity: 0; }
 
 .prints-label { font-size:0.6rem; letter-spacing:3px; color:var(--gold); margin-bottom:0.8rem; }
+.prints-dica { display:block; margin-top:3px; font-size:0.55rem; letter-spacing:0; text-transform:none;
+  font-style:italic; color:var(--parchment-xdk); }
+
+.prints-chips { display:flex; flex-wrap:wrap; gap:5px; }
+.print-chip {
+  display:flex; align-items:center; gap:5px; padding:5px 9px;
+  background:rgba(0,0,0,0.3); border:1px solid rgba(184,134,11,0.22);
+  border-radius:3px; cursor:pointer; transition:all 0.15s;
+}
+.print-chip:hover, .print-chip.espiando {
+  border-color:var(--gold); background:rgba(184,134,11,0.14);
+}
+.print-chip.fixada {
+  border-color:var(--gold); background:rgba(184,134,11,0.26);
+  box-shadow:0 0 0 1px rgba(184,134,11,0.35) inset;
+}
+.print-chip.fixada .chip-codigo { color:var(--gold-shine); font-weight:700; }
+.chip-icone { width:15px; height:15px; filter:invert(0.8) sepia(0.3); }
+.chip-codigo { font-family:'Cinzel',serif; font-size:0.62rem; letter-spacing:1px; color:var(--parchment-dk); }
+
+.print-atual {
+  margin-top:8px; font-size:0.72rem; color:var(--aged-white); font-family:'Cinzel',serif;
+}
+.print-atual em { color:var(--parchment-xdk); font-size:0.64rem; }
+
 .prints-grid  { display:flex; flex-direction:column; gap:6px; max-height:340px; overflow-y:auto; }
 
 .print-btn {
@@ -279,6 +338,15 @@ watch(cardName, load)
 .detail-set-icon { width:28px; height:28px; filter:invert(0.85) sepia(0.3); opacity:0.8; }
 
 /* ── Preços ── */
+.preco-real {
+  display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:12px;
+  padding:10px 14px; background:rgba(184,134,11,0.1);
+  border:1px solid rgba(184,134,11,0.3); border-radius:4px;
+}
+.real-valor { font-family:'Cinzel',serif; font-size:1.35rem; color:var(--gold-shine); }
+.real-foil  { font-size:0.8rem; color:var(--parchment-dk); }
+.real-nota  { flex-basis:100%; font-size:0.6rem; font-style:italic; color:var(--parchment-xdk); }
+
 .prices-grid {
   display: flex; gap: 10px; flex-wrap: wrap;
 }

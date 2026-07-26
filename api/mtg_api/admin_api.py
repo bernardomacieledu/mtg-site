@@ -11,7 +11,8 @@ from rest_framework.response import Response
 
 from auth_app.views import admin_required
 
-from .models import CardPrice, CardSet, ManaSymbol, ScheduledTask
+from .models import CardPrice, CardSet, ManaSymbol, ScheduledTask, SystemSetting
+from .scryfall import get_usd_brl_rate
 
 
 def _serializar(tarefa):
@@ -119,4 +120,37 @@ def status_sistema(request):
         'users':        User.objects.count(),
         'decks':        UserDeck.objects.count(),
         'collections':  UserCollection.objects.count(),
+    })
+
+
+@api_view(['GET', 'POST'])
+@admin_required
+def cambio(request):
+    """
+    GET/POST /api/admin/exchange/ — cotação USD -> BRL usada nas conversões.
+
+    modo 'auto'   : consulta diária (AwesomeAPI), com cache de 24 h
+    modo 'manual' : usa o valor informado aqui, útil quando o administrador
+                    quer embutir margem de importação ou a consulta está fora
+    """
+    if request.method == 'POST':
+        modo = request.data.get('mode', 'auto')
+        if modo not in ('auto', 'manual'):
+            return Response({'error': 'Modo inválido.'}, status=400)
+
+        if modo == 'manual':
+            try:
+                valor = float(str(request.data.get('rate', '')).replace(',', '.'))
+            except (TypeError, ValueError):
+                return Response({'error': 'Informe uma cotação numérica.'}, status=400)
+            if not 0.1 <= valor <= 100:
+                return Response({'error': 'Cotação fora de uma faixa plausível.'}, status=400)
+            SystemSetting.set('usd_brl_manual', valor)
+
+        SystemSetting.set('usd_brl_mode', modo)
+
+    return Response({
+        'mode':      SystemSetting.get('usd_brl_mode', 'auto'),
+        'manual':    SystemSetting.get('usd_brl_manual', ''),
+        'effective': get_usd_brl_rate(),
     })

@@ -543,6 +543,24 @@ def card_prices(request):
     """
     import json as _json, urllib.request as _req, urllib.parse as _parse
 
+    cotacao = get_usd_brl_rate()
+
+    def com_real(precos, origem, data=''):
+        try:
+            usd = float(precos.get('usd')) if precos.get('usd') else None
+        except (TypeError, ValueError):
+            usd = None
+        if usd is not None and cotacao:
+            precos = {**precos, 'brl': round(usd * cotacao, 2)}
+        try:
+            foil = float(precos.get('usd_foil')) if precos.get('usd_foil') else None
+        except (TypeError, ValueError):
+            foil = None
+        if foil is not None and cotacao:
+            precos = {**precos, 'brl_foil': round(foil * cotacao, 2)}
+        return Response({'prices': precos, 'source': origem,
+                         'price_date': data, 'usd_brl': cotacao})
+
     scryfall_id = request.query_params.get('id', '').strip()
     if scryfall_id:
         from .models import CardPrice
@@ -554,8 +572,21 @@ def card_prices(request):
             if registro.eur is not None:      precos['eur'] = str(registro.eur)
             if registro.eur_foil is not None: precos['eur_foil'] = str(registro.eur_foil)
             if precos:
-                return Response({'prices': precos, 'source': 'mtgjson',
-                                 'price_date': registro.price_date})
+                return com_real(precos, 'banco', registro.price_date)
+
+        # Sem preço gravado, consulta o Scryfall PELA IMPRESSÃO.
+        # Buscar pelo nome traria o preço da impressão padrão, fazendo todas as
+        # versões da carta aparecerem com o mesmo valor.
+        try:
+            req = _req.Request(f'https://api.scryfall.com/cards/{scryfall_id}',
+                               headers={'User-Agent': 'MTGNexus/1.0'})
+            with _req.urlopen(req, timeout=8) as resp:
+                dados = _json.loads(resp.read())
+            precos = {k: v for k, v in (dados.get('prices') or {}).items() if v is not None}
+            if precos:
+                return com_real(precos, 'scryfall-impressao')
+        except Exception:
+            pass
 
     name = request.query_params.get('name', '').strip()
     if not name:
@@ -567,7 +598,7 @@ def card_prices(request):
         with _req.urlopen(req, timeout=8) as resp:
             data = _json.loads(resp.read())
         prices = {k: v for k, v in data.get('prices', {}).items() if v is not None}
-        return Response({'prices': prices, 'name': name, 'source': 'scryfall'})
+        return com_real(prices, 'scryfall-nome')
     except Exception as e:
         return Response({'prices': None, 'error': str(e)})
 

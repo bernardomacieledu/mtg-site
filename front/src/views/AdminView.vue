@@ -17,6 +17,42 @@
         </div>
       </section>
 
+      <!-- Cotação do dólar -->
+      <section class="cambio">
+        <div class="cambio-topo">
+          <h3 class="cambio-titulo">💱 Cotação do dólar</h3>
+          <span class="cambio-atual">
+            1 US$ = R$ {{ cambio.effective ? cambio.effective.toFixed(2) : '—' }}
+          </span>
+        </div>
+        <p class="cambio-nota">
+          Usada para exibir os preços em real. É uma conversão do dólar, não o preço
+          praticado no mercado brasileiro.
+        </p>
+        <div class="cambio-controles">
+          <label class="controle">
+            <input type="radio" value="auto" :checked="cambio.mode === 'auto'" @change="salvarCambio('auto')" />
+            <span>Automática (consulta diária)</span>
+          </label>
+          <label class="controle">
+            <input type="radio" value="manual" :checked="cambio.mode === 'manual'" @change="salvarCambio('manual')" />
+            <span>Fixar valor</span>
+          </label>
+          <input
+            v-model="cotacaoManual"
+            class="input-cotacao"
+            :disabled="cambio.mode !== 'manual'"
+            placeholder="5,42"
+            @keyup.enter="salvarCambio('manual')"
+          />
+          <button
+            class="btn-primary btn-cambio"
+            :disabled="cambio.mode !== 'manual' || salvando"
+            @click="salvarCambio('manual')"
+          >Salvar</button>
+        </div>
+      </section>
+
       <div class="section-head">
         <h2 class="section-title">✦ Tarefas Agendadas ✦</h2>
         <span class="section-sub">
@@ -93,7 +129,8 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
-import { adminStatus, adminTasks, adminUpdateTask, adminRunTask } from '@/composables/api'
+import { adminStatus, adminTasks, adminUpdateTask, adminRunTask,
+         adminExchange, adminSetExchange } from '@/composables/api'
 
 const tarefas    = ref([])
 const status     = ref({})
@@ -101,6 +138,8 @@ const carregando = ref(true)
 const salvando   = ref(false)
 const mensagem   = ref(null)
 const horaServidor = ref('')
+const cambio        = ref({ mode: 'auto', manual: '', effective: null })
+const cotacaoManual = ref('')
 
 let atualizacao = null
 
@@ -125,6 +164,11 @@ async function carregar(silencioso = false) {
       adminTasks(), adminStatus(),
     ])
     tarefas.value = tarefasData.tasks
+    try {
+      const { data: cambioData } = await adminExchange()
+      cambio.value = cambioData
+      if (!cotacaoManual.value) cotacaoManual.value = cambioData.manual || ''
+    } catch { /* mantém o valor atual */ }
     horaServidor.value = new Date(tarefasData.server_time).toLocaleString('pt-BR')
     status.value = statusData
   } catch (erro) {
@@ -162,6 +206,25 @@ async function rodar(tarefa) {
     avisar(`${tarefa.label} entrou na fila. O worker executa em até 1 minuto.`)
   } catch (erro) {
     avisar(erro.response?.data?.error || 'Não foi possível agendar.', 'err')
+  } finally {
+    salvando.value = false
+  }
+}
+
+async function salvarCambio(modo) {
+  salvando.value = true
+  try {
+    const corpo = modo === 'manual'
+      ? { mode: 'manual', rate: cotacaoManual.value }
+      : { mode: 'auto' }
+    const { data } = await adminSetExchange(corpo)
+    cambio.value = data
+    avisar(modo === 'manual'
+      ? `Cotação fixada em R$ ${Number(data.effective).toFixed(2)}.`
+      : 'Cotação automática reativada.')
+  } catch (erro) {
+    avisar(erro.response?.data?.error || 'Não foi possível salvar a cotação.', 'err')
+    await carregar(true)
   } finally {
     salvando.value = false
   }
@@ -210,6 +273,24 @@ onBeforeUnmount(() => clearInterval(atualizacao))
   display: block; margin-top: 4px; font-size: 0.62rem; letter-spacing: 1px;
   text-transform: uppercase; color: var(--parchment-xdk);
 }
+
+.cambio {
+  background: rgba(0,0,0,0.25); border: 1px solid rgba(184,134,11,0.2);
+  border-radius: 4px; padding: 16px 18px; margin-bottom: 2.4rem;
+}
+.cambio-topo { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.cambio-titulo { font-family: 'Cinzel', serif; font-size: 0.9rem; color: var(--aged-white); }
+.cambio-atual { font-family: 'Cinzel', serif; font-size: 1rem; color: var(--gold-shine); }
+.cambio-nota { font-size: 0.66rem; color: var(--parchment-xdk); font-style: italic; margin: 6px 0 12px; }
+.cambio-controles { display: flex; align-items: center; gap: 1.2rem; flex-wrap: wrap; }
+.cambio-controles .controle input[type="radio"] { accent-color: var(--gold); cursor: pointer; }
+.input-cotacao {
+  width: 90px; padding: 5px 8px; text-align: center;
+  background: rgba(0,0,0,0.4); border: 1px solid rgba(184,134,11,0.3);
+  color: var(--aged-white); border-radius: 2px; font-size: 0.8rem;
+}
+.input-cotacao:disabled { opacity: 0.4; }
+.btn-cambio { padding: 6px 14px; font-size: 0.64rem; }
 
 .section-head { text-align: center; margin-bottom: 1.6rem; }
 .section-title {

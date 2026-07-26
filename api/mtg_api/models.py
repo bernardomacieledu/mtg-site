@@ -172,3 +172,33 @@ class ScheduledTask(models.Model):
         if not self.enabled:
             return False
         return self.next_run is None or self.next_run <= timezone.now()
+
+
+class SystemSetting(models.Model):
+    """
+    Configurações ajustáveis pelo administrador, em pares chave/valor.
+
+    Criada para a cotação do dólar, que precisa poder ser fixada à mão quando a
+    consulta automática falha ou quando o administrador quer usar um valor
+    próprio (câmbio turismo, margem de importação etc.).
+    """
+    key        = models.CharField(max_length=60, primary_key=True)
+    value      = models.CharField(max_length=255, blank=True, default='')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'mtg_settings'
+
+    def __str__(self):
+        return f'{self.key} = {self.value}'
+
+    @classmethod
+    def get(cls, key, padrao=None):
+        try:
+            return cls.objects.get(key=key).value
+        except (cls.DoesNotExist, Exception):
+            return padrao
+
+    @classmethod
+    def set(cls, key, value):
+        cls.objects.update_or_create(key=key, defaults={'value': str(value)})
