@@ -180,13 +180,42 @@ def _count_grouped(where_sql, params):
         return cur.fetchone()[0]
 
 
-def _precos_por_impressao(raw_cards):
+def _todas_impressoes(nomes):
+    """
+    Todas as impressões das cartas da página, ignorando o filtro de coleção.
+
+    O filtro decide QUAIS cartas aparecem; as impressões vêm completas para o
+    usuário poder alternar entre versões sem perder as demais de vista. Antes,
+    ao navegar por uma coleção, o card só conhecia aquela impressão.
+    """
+    if not nomes:
+        return {}
+
+    marcadores = ', '.join(['%s'] * len(nomes))
+    with connection.cursor() as cur:
+        cur.execute(f"""
+            SELECT name, scryfall_id, set_code, image_url_normal, release_date, rarity
+            FROM cards
+            WHERE name IN ({marcadores}) AND image_url_normal IS NOT NULL
+            ORDER BY release_date DESC, scryfall_id
+        """, list(nomes))
+        agrupado = {}
+        for nome, scryfall_id, set_code, imagem, lancamento, raridade in cur.fetchall():
+            agrupado.setdefault(nome, []).append({
+                'scryfall_id': scryfall_id,
+                'code':        set_code,
+                'image_url':   imagem,
+                'released_at': str(lancamento) if lancamento else '',
+                'rarity':      raridade or 'common',
+            })
+        return agrupado
+
+
+def _precos_por_impressao(impressoes_por_nome):
     """Uma única consulta para os preços de todas as impressões da página."""
-    ids = set()
-    for c in raw_cards:
-        for par in (c.get('impressoes') or '').split(','):
-            if '|' in par:
-                ids.add(par.split('|', 1)[1])
+    ids = {imp['scryfall_id']
+           for lista in impressoes_por_nome.values()
+           for imp in lista}
     if not ids:
         return {}
 
@@ -198,8 +227,9 @@ def _precos_por_impressao(raw_cards):
     }
 
 
-def _enrich(raw_cards, set_names):
-    precos = _precos_por_impressao(raw_cards)
+def _enrich(raw_cards, set_names, set_filtrado=''):
+    impressoes = _todas_impressoes([c['name'] for c in raw_cards])
+    precos = _precos_por_impressao(impressoes)
     cotacao = get_usd_brl_rate()
 
     def valores(scryfall_id):
@@ -208,52 +238,54 @@ def _enrich(raw_cards, set_names):
             return None
         usd = float(registro['usd']) if registro['usd'] is not None else None
         foil = float(registro['usd_foil']) if registro['usd_foil'] is not None else None
-        saida = {
-            'usd':      usd,
-            'usd_foil': foil,
-            'eur':      float(registro['eur']) if registro['eur'] is not None else None,
+        return {
+            'usd': usd, 'usd_foil': foil,
+            'eur': float(registro['eur']) if registro['eur'] is not None else None,
+            # Estimativa convertida da cotação; o foil é convertido à parte
+            # porque há cartas que só existem nessa versão.
+            'brl':      round(usd * cotacao, 2) if (usd is not None and cotacao) else None,
+            'brl_foil': round(foil * cotacao, 2) if (foil is not None and cotacao) else None,
         }
-        # Estimativa convertida da cotação do dia, não é preço de mercado local.
-        # O foil é convertido à parte: cartas de coleções especiais existem só
-        # em foil, e sem isso ficavam sem valor em real.
-        saida['brl']      = round(usd * cotacao, 2) if (usd is not None and cotacao) else None
-        saida['brl_foil'] = round(foil * cotacao, 2) if (foil is not None and cotacao) else None
-        return saida
 
+    filtro = (set_filtrado or '').strip().lower()
     cards = []
-    for c in raw_cards:
-        # set_code -> scryfall_id da impressão daquele set
-        ids_por_set = {}
-        for par in (c.get('impressoes') or '').split(','):
-            if '|' in par:
-                codigo, scryfall_id = par.split('|', 1)
-                ids_por_set.setdefault(codigo, scryfall_id)
 
-        set_codes = (c['set_codes'] or '').split(',')
+    for c in raw_cards:
+        lista = impressoes.get(c['name'], [])
         sets = []
-        for code in set_codes:
-            info = set_names.get(code, {})
-            scryfall_id = ids_por_set.get(code)
+        for imp in lista:
+            info = set_names.get(imp['code'], {})
             sets.append({
-                'code':         code,
-                'name':         info.get('name', code),
-                'released_at':  info.get('released_at', ''),
+                **imp,
+                'name':         info.get('name', imp['code']),
+                'set_name':     info.get('name', imp['code']),
                 'icon_svg_uri': info.get('icon_svg_uri',
-                    f'https://svgs.scryfall.io/sets/{code.lower()}.svg'),
-                'scryfall_id':  scryfall_id,
-                'prices':       valores(scryfall_id) if scryfall_id else None,
+                    f"https://svgs.scryfall.io/sets/{(imp['code'] or '').lower()}.svg"),
+                'prices':       valores(imp['scryfall_id']),
             })
+
+        # Navegando por uma coleção, a versão exibida é a daquela coleção;
+        # sem filtro, a impressão mais recente.
+        indice = 0
+        if filtro:
+            for posicao, imp in enumerate(sets):
+                if (imp['code'] or '').lower() == filtro:
+                    indice = posicao
+                    break
+
+        padrao = sets[indice] if sets else None
+
         cards.append({
             'name':             c['name'],
             'mana_cost':        c['mana_cost'] or '',
             'cmc':              float(c['cmc']) if c['cmc'] is not None else None,
             'type_line':        c['type_line'] or '',
             'oracle_text':      c['oracle_text'] or '',
-            'rarity':           c['rarity'] or 'common',
-            'image_url_normal': c['image_url_normal'],
+            'rarity':           (padrao or {}).get('rarity') or c['rarity'] or 'common',
+            'image_url_normal': (padrao or {}).get('image_url') or c['image_url_normal'],
             'sets':             sets,
-            # preço da impressão mais recente, exibido antes de trocar de versão
-            'prices':           sets[0]['prices'] if sets else None,
+            'default_index':    indice,
+            'prices':           (padrao or {}).get('prices'),
             'usd_brl':          cotacao,
             'latest_release':   str(c['latest_release']) if c['latest_release'] else None,
             'first_release':    str(c['first_release']) if c['first_release'] else None,
@@ -304,7 +336,7 @@ class CardListView(APIView):
 
         set_names = get_set_names()
         raw   = _fetch_grouped(where_sql, params, page_size, offset, ordem)
-        cards = _enrich(raw, set_names)
+        cards = _enrich(raw, set_names, set_code)
 
         return Response({
             'count':       total,

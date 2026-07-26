@@ -11,12 +11,12 @@
       <Transition name="fade">
         <div v-if="hovering && (card.sets?.length || 0) > 1" class="set-overlay">
           <button
-            v-for="s in (card.sets || [])"
-            :key="s.code"
+            v-for="(s, i) in (card.sets || [])"
+            :key="s.scryfall_id || `${s.code}-${i}`"
             class="set-btn"
-            :class="{ active: activeSet === s.code }"
-            :title="`${s.name} · ${s.released_at}`"
-            @click.stop="switchSet(s)"
+            :class="{ active: i === indiceAtivo }"
+            :title="`${s.set_name || s.name} · ${s.released_at}`"
+            @click.stop="indiceAtivo = i"
           >
             <img
               :src="`https://svgs.scryfall.io/sets/${s.code.toLowerCase()}.svg`"
@@ -30,6 +30,15 @@
 
       <!-- Click hint -->
       <div v-if="hovering" class="detail-hint">Ver detalhes ▸</div>
+
+      <!-- Alternar impressão sem precisar acertar o chip -->
+      <div v-if="totalImpressoes > 1" class="impressao-nav" @click.stop>
+        <button class="nav-btn" title="Impressão anterior" @click="anterior">‹</button>
+        <span class="nav-contador" :title="tituloImpressao">
+          {{ indiceAtivo + 1 }}/{{ totalImpressoes }}
+        </span>
+        <button class="nav-btn" title="Próxima impressão" @click="proxima">›</button>
+      </div>
 
       <!-- Quantidade já na coleção em montagem -->
       <div v-if="inCollection > 0" class="qty-badge" title="Cópias na coleção em montagem">
@@ -89,10 +98,10 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMana } from '@/composables/useMana'
-import { getCardImages } from '@/composables/api'
+
 import { useCollectionsStore } from '@/stores/collections'
 
 const props  = defineProps({ card: { type: Object, required: true } })
@@ -102,17 +111,34 @@ const { renderMana } = useMana()
 const collections = useCollectionsStore()
 
 const hovering   = ref(false)
-const activeSet  = ref(props.card.sets?.[0]?.code || '')
-const imageCache = ref({ [activeSet.value]: props.card.image_url_normal })
+// Navegando por uma coleção, o backend já marca qual impressão é a daquela
+// coleção. As imagens vêm na resposta, então alternar não custa requisição.
+const indiceAtivo = ref(props.card.default_index ?? 0)
 
-const currentImage  = computed(() => imageCache.value[activeSet.value] || props.card.image_url_normal)
+const impressaoAtiva = computed(() => props.card.sets?.[indiceAtivo.value] || null)
+const totalImpressoes = computed(() => props.card.sets?.length || 0)
+const activeSet = computed(() => impressaoAtiva.value?.code || '')
+
+const tituloImpressao = computed(() => {
+  const imp = impressaoAtiva.value
+  return imp ? `${imp.set_name || imp.name} · ${imp.released_at}` : ''
+})
+
+function anterior() {
+  indiceAtivo.value = (indiceAtivo.value - 1 + totalImpressoes.value) % totalImpressoes.value
+}
+function proxima() {
+  indiceAtivo.value = (indiceAtivo.value + 1) % totalImpressoes.value
+}
+
+const currentImage = computed(() =>
+  impressaoAtiva.value?.image_url || props.card.image_url_normal)
 const inCollection  = computed(() => collections.qtyOf(props.card.name))
 
 // O preço acompanha a impressão selecionada: versões diferentes da mesma carta
 // têm valores bem distintos.
 const precoAtual = computed(() => {
-  const impressao = props.card.sets?.find(s => s.code === activeSet.value)
-  return impressao?.prices || props.card.prices || null
+  return impressaoAtiva.value?.prices || props.card.prices || null
 })
 
 // Cai para o foil quando a impressão não tem versão normal
@@ -141,7 +167,7 @@ function addToCollection() {
   collections.requestAdd({
     ...props.card,
     set:       activeSet.value,
-    set_name:  props.card.sets?.find(s => s.code === activeSet.value)?.name || activeSet.value,
+    set_name:  impressaoAtiva.value?.set_name || activeSet.value,
     image_url: currentImage.value,
   })
 }
@@ -150,16 +176,8 @@ function goToDetail() {
   router.push({ name: 'card-detail', params: { name: props.card.name } })
 }
 
-async function switchSet(s) {
-  if (activeSet.value === s.code) return
-  activeSet.value = s.code
-  if (!imageCache.value[s.code]) {
-    try {
-      const { data } = await getCardImages(props.card.name)
-      data.images.forEach(img => { imageCache.value[img.set_code] = img.image_url })
-    } catch { /* mantém atual */ }
-  }
-}
+// Se a carta mudar (nova busca), volta para a impressão padrão da coleção
+watch(() => props.card, (nova) => { indiceAtivo.value = nova?.default_index ?? 0 })
 </script>
 
 <style scoped>
@@ -211,6 +229,21 @@ async function switchSet(s) {
 
 .card-footer   { background:rgba(0,0,0,0.22); border-top:1px solid rgba(184,134,11,0.12); padding:9px 15px; display:flex; align-items:center; justify-content:space-between; }
 .footer-sets   { display:flex; gap:4px; }
+.impressao-nav {
+  position:absolute; bottom:10px; left:50%; transform:translateX(-50%);
+  display:flex; align-items:center; gap:2px; z-index:3;
+  background:rgba(10,7,4,0.85); border:1px solid rgba(184,134,11,0.4);
+  border-radius:3px; padding:2px;
+}
+.nav-btn {
+  width:20px; height:20px; line-height:1; padding:0;
+  background:none; border:none; color:var(--gold); cursor:pointer; font-size:1rem;
+}
+.nav-btn:hover { color:var(--gold-shine); }
+.nav-contador {
+  font-family:'Cinzel',serif; font-size:0.58rem; color:var(--parchment-dk);
+  padding:0 4px; min-width:26px; text-align:center;
+}
 .footer-right  { display:flex; align-items:center; gap:8px; }
 .preco-tag {
   display:flex; flex-direction:column; align-items:flex-start; line-height:1.2;
