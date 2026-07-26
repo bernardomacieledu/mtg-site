@@ -99,8 +99,14 @@
               :title="c.name"
               @click="toggleColor(c.sym)"
             >
-              <img v-if="manaMap[c.sym]" :src="manaMap[c.sym]" class="ms" />
-              <span v-else>{{ c.sym }}</span>
+              <img
+                v-if="!iconesQuebrados.includes(c.sym)"
+                :src="manaMap[c.sym] || c.icon"
+                :alt="c.name"
+                class="ms"
+                @error="iconesQuebrados.push(c.sym)"
+              />
+              <span v-else class="pip-letra">{{ letraDaCor[c.sym] }}</span>
             </button>
           </div>
         </div>
@@ -162,17 +168,23 @@ const props = defineProps({
 const emit = defineEmits(['search'])
 
 const { symbols: manaMap } = useMana()
+const iconesQuebrados = ref([])
 const types         = ref([])
 const showAdvanced  = ref(false)
 
+// Os ícones vêm direto do Scryfall (URLs públicas e estáveis, carregadas pelo
+// navegador). Antes dependiam do mapa de símbolos servido pela API: quando ele
+// vinha vazio, os pips exibiam "{W}" em texto.
 const manaColors = [
-  { sym: '{W}', name: 'Branco' },
-  { sym: '{U}', name: 'Azul'   },
-  { sym: '{B}', name: 'Preto'  },
-  { sym: '{R}', name: 'Vermelho'},
-  { sym: '{G}', name: 'Verde'  },
-  { sym: '{C}', name: 'Incolor' },
+  { sym: '{W}', name: 'Branco',   icon: 'https://svgs.scryfall.io/card-symbols/W.svg' },
+  { sym: '{U}', name: 'Azul',     icon: 'https://svgs.scryfall.io/card-symbols/U.svg' },
+  { sym: '{B}', name: 'Preto',    icon: 'https://svgs.scryfall.io/card-symbols/B.svg' },
+  { sym: '{R}', name: 'Vermelho', icon: 'https://svgs.scryfall.io/card-symbols/R.svg' },
+  { sym: '{G}', name: 'Verde',    icon: 'https://svgs.scryfall.io/card-symbols/G.svg' },
+  { sym: '{C}', name: 'Incolor',  icon: 'https://svgs.scryfall.io/card-symbols/C.svg' },
 ]
+
+const letraDaCor = { '{W}': 'W', '{U}': 'U', '{B}': 'B', '{R}': 'R', '{G}': 'G', '{C}': 'C' }
 
 const KEYWORDS = [
   { id: 'flying',        label: 'Voar' },
@@ -357,6 +369,7 @@ onMounted(async () => {
 .pip-btn:hover { border-color: var(--gold); transform: scale(1.1); }
 .pip-btn.active { border-color: var(--gold-shine); background: rgba(184,134,11,0.2); box-shadow: 0 0 10px rgba(212,160,23,0.3); }
 .pip-btn .ms { width: 22px; height: 22px; }
+.pip-letra { font-family: 'Cinzel', serif; font-size: 0.8rem; color: var(--gold); }
 
 /* Transition */
 .advanced-slide-enter-active, .advanced-slide-leave-active { transition: all 0.3s ease; overflow: hidden; }

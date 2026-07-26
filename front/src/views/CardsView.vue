@@ -69,14 +69,25 @@ const loading      = ref(false)
 const loadError    = ref('')
 const activeFilters = reactive({})
 
-// Lê filtros iniciais da URL
-const initialFilters = computed(() => ({
-  q: route.query.q || '', set: route.query.set || '',
-  rarity: route.query.rarity || '', type: route.query.type || '',
-  cmc: route.query.cmc || '', cmc_op: route.query.cmc_op || '=',
-  colors: route.query.colors || '',
-  date_from: route.query.date_from || '', date_to: route.query.date_to || '',
-}))
+// Parâmetros aceitos na URL e repassados à API.
+// Era uma lista fixa que não incluía os filtros novos (legendary, keywords,
+// sort...): o SearchBar os emitia, iam para a URL e eram descartados aqui,
+// então a API nunca os recebia.
+const PARAMS = [
+  'q', 'set', 'rarity', 'type', 'cmc', 'cmc_op', 'colors', 'color_mode',
+  'legendary', 'nonlegendary', 'keywords', 'keyword_mode', 'sort',
+  'date_from', 'date_to',
+]
+
+function paramsDaUrl(query) {
+  const saida = {}
+  for (const chave of PARAMS) saida[chave] = query[chave] || ''
+  if (!saida.cmc_op) saida.cmc_op = '='
+  if (!saida.sort)   saida.sort = 'release_desc'
+  return saida
+}
+
+const initialFilters = computed(() => paramsDaUrl(route.query))
 
 const setName = computed(() => sets.value.find(s => s.code === activeFilters.set)?.name || '')
 
@@ -118,11 +129,7 @@ function cleanQuery(filters) {
 }
 
 function filtersFromQuery(query) {
-  return {
-    q: query.q || '', set: query.set || '', rarity: query.rarity || '',
-    type: query.type || '', cmc: query.cmc || '', cmc_op: query.cmc_op || '=',
-    colors: query.colors || '', date_from: query.date_from || '', date_to: query.date_to || '',
-  }
+  return paramsDaUrl(query)
 }
 
 watch(() => route.query, (query) => {
