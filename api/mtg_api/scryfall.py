@@ -80,3 +80,26 @@ def get_mana_map() -> dict:
         mapa.setdefault(s['symbol'], s['svg_uri'])
 
     return mapa
+
+
+def get_usd_brl_rate():
+    """
+    Cotação USD -> BRL, com cache em disco (24 h).
+
+    Nenhuma fonte de preço de carta publica valores em real, então a conversão
+    é feita aqui. É uma ESTIMATIVA: o mercado brasileiro tem dinâmica própria
+    (importação, tributação, escassez local) e costuma divergir da conversão
+    direta. A interface precisa deixar isso claro.
+    """
+    import os
+
+    dados = fetch_scryfall('https://economia.awesomeapi.com.br/last/USD-BRL',
+                           'usd_brl_cache.json')
+    try:
+        return float(dados['USDBRL']['bid'])
+    except (KeyError, TypeError, ValueError):
+        # Sem cotação disponível, usa o valor de referência do ambiente
+        try:
+            return float(os.environ.get('USD_BRL_FALLBACK', '0') or 0) or None
+        except ValueError:
+            return None

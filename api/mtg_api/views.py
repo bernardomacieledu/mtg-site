@@ -5,7 +5,7 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from .models import Card, Rule
-from .scryfall import get_set_names, get_mana_map
+from .scryfall import get_set_names, get_mana_map, get_usd_brl_rate
 
 
 # Habilidades reconhecidas no filtro -> termo procurado no texto da carta.
@@ -158,6 +158,8 @@ def _fetch_grouped(where_sql, params, limit, offset, order_by='MAX(release_date)
                MAX(rarity)           AS rarity,
                SUBSTRING_INDEX(GROUP_CONCAT(image_url_normal ORDER BY release_date DESC), ',', 1) AS image_url_normal,
                GROUP_CONCAT(DISTINCT set_code ORDER BY release_date DESC) AS set_codes,
+               GROUP_CONCAT(CONCAT(set_code, '|', scryfall_id)
+                            ORDER BY release_date DESC) AS impressoes,
                MAX(release_date)     AS latest_release,
                MIN(release_date)     AS first_release
         FROM cards WHERE {where_sql}
@@ -176,19 +178,64 @@ def _count_grouped(where_sql, params):
         return cur.fetchone()[0]
 
 
+def _precos_por_impressao(raw_cards):
+    """Uma única consulta para os preços de todas as impressões da página."""
+    ids = set()
+    for c in raw_cards:
+        for par in (c.get('impressoes') or '').split(','):
+            if '|' in par:
+                ids.add(par.split('|', 1)[1])
+    if not ids:
+        return {}
+
+    from .models import CardPrice
+    return {
+        registro['scryfall_id']: registro
+        for registro in CardPrice.objects.filter(scryfall_id__in=ids)
+                                         .values('scryfall_id', 'usd', 'usd_foil', 'eur')
+    }
+
+
 def _enrich(raw_cards, set_names):
+    precos = _precos_por_impressao(raw_cards)
+    cotacao = get_usd_brl_rate()
+
+    def valores(scryfall_id):
+        registro = precos.get(scryfall_id)
+        if not registro:
+            return None
+        usd = float(registro['usd']) if registro['usd'] is not None else None
+        saida = {
+            'usd':      usd,
+            'usd_foil': float(registro['usd_foil']) if registro['usd_foil'] is not None else None,
+            'eur':      float(registro['eur']) if registro['eur'] is not None else None,
+        }
+        # Estimativa: convertida da cotação do dia, não é preço de mercado local
+        saida['brl'] = round(usd * cotacao, 2) if (usd is not None and cotacao) else None
+        return saida
+
     cards = []
     for c in raw_cards:
+        # set_code -> scryfall_id da impressão daquele set
+        ids_por_set = {}
+        for par in (c.get('impressoes') or '').split(','):
+            if '|' in par:
+                codigo, scryfall_id = par.split('|', 1)
+                ids_por_set.setdefault(codigo, scryfall_id)
+
         set_codes = (c['set_codes'] or '').split(',')
         sets = []
         for code in set_codes:
             info = set_names.get(code, {})
+            scryfall_id = ids_por_set.get(code)
             sets.append({
                 'code':         code,
                 'name':         info.get('name', code),
                 'released_at':  info.get('released_at', ''),
                 'icon_svg_uri': info.get('icon_svg_uri',
                     f'https://svgs.scryfall.io/sets/{code.lower()}.svg'),
+                'scryfall_id':  scryfall_id,
+                'prices':       valores(scryfall_id) if scryfall_id else None,
             })
         cards.append({
             'name':             c['name'],
@@ -199,6 +246,9 @@ def _enrich(raw_cards, set_names):
             'rarity':           c['rarity'] or 'common',
             'image_url_normal': c['image_url_normal'],
             'sets':             sets,
+            # preço da impressão mais recente, exibido antes de trocar de versão
+            'prices':           sets[0]['prices'] if sets else None,
+            'usd_brl':          cotacao,
             'latest_release':   str(c['latest_release']) if c['latest_release'] else None,
             'first_release':    str(c['first_release']) if c['first_release'] else None,
         })

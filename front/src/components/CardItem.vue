@@ -60,6 +60,11 @@
           @error="e => e.target.style.display='none'"
         />
       </div>
+      <div v-if="precoAtual" class="preco-tag" :title="tituloPreco">
+        <span class="preco-brl">R$ {{ precoAtual.brl?.toFixed(2) ?? '—' }}</span>
+        <span v-if="precoAtual.usd" class="preco-usd">US$ {{ precoAtual.usd.toFixed(2) }}</span>
+      </div>
+
       <div class="footer-right">
         <span :class="['rarity-badge', `rarity-${card.rarity}`]">{{ card.rarity }}</span>
         <div class="collect-actions">
@@ -99,6 +104,21 @@ const imageCache = ref({ [activeSet.value]: props.card.image_url_normal })
 
 const currentImage  = computed(() => imageCache.value[activeSet.value] || props.card.image_url_normal)
 const inCollection  = computed(() => collections.qtyOf(props.card.name))
+
+// O preço acompanha a impressão selecionada: versões diferentes da mesma carta
+// têm valores bem distintos.
+const precoAtual = computed(() => {
+  const impressao = props.card.sets?.find(s => s.code === activeSet.value)
+  return impressao?.prices || props.card.prices || null
+})
+
+const tituloPreco = computed(() => {
+  const cotacao = props.card.usd_brl
+  const base = `Impressão ${activeSet.value?.toUpperCase() || ''}`
+  return cotacao
+    ? `${base} — estimativa convertida de US$ (câmbio ${cotacao.toFixed(2)})`
+    : `${base} — valor em dólar`
+})
 
 function addToCollection() {
   // Abre o modal para o usuário escolher (ou criar) a coleção de destino
@@ -176,6 +196,14 @@ async function switchSet(s) {
 .card-footer   { background:rgba(0,0,0,0.22); border-top:1px solid rgba(184,134,11,0.12); padding:9px 15px; display:flex; align-items:center; justify-content:space-between; }
 .footer-sets   { display:flex; gap:4px; }
 .footer-right  { display:flex; align-items:center; gap:8px; }
+.preco-tag {
+  display:flex; flex-direction:column; align-items:flex-start; line-height:1.2;
+  margin-right:auto;
+}
+.preco-brl {
+  font-family:'Cinzel',serif; font-size:0.76rem; color:var(--gold-shine); font-weight:600;
+}
+.preco-usd { font-size:0.58rem; color:var(--parchment-xdk); }
 .collect-actions { display:flex; gap:3px; }
 .collect-btn {
   width:22px; height:22px; line-height:1;
