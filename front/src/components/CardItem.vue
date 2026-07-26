@@ -60,9 +60,12 @@
           @error="e => e.target.style.display='none'"
         />
       </div>
-      <div v-if="precoAtual" class="preco-tag" :title="tituloPreco">
-        <span class="preco-brl">R$ {{ precoAtual.brl?.toFixed(2) ?? '—' }}</span>
-        <span v-if="precoAtual.usd" class="preco-usd">US$ {{ precoAtual.usd.toFixed(2) }}</span>
+      <div v-if="valorReal" class="preco-tag" :title="tituloPreco">
+        <span class="preco-brl">
+          R$ {{ valorReal.brl.toFixed(2) }}
+          <em v-if="valorReal.somenteFoil" class="preco-foil-tag">foil</em>
+        </span>
+        <span class="preco-usd">US$ {{ valorReal.usd.toFixed(2) }}</span>
       </div>
 
       <div class="footer-right">
@@ -110,6 +113,19 @@ const inCollection  = computed(() => collections.qtyOf(props.card.name))
 const precoAtual = computed(() => {
   const impressao = props.card.sets?.find(s => s.code === activeSet.value)
   return impressao?.prices || props.card.prices || null
+})
+
+// Cai para o foil quando a impressão não tem versão normal
+const valorReal = computed(() => {
+  const p = precoAtual.value
+  if (!p) return null
+  if (p.brl != null && p.usd != null) {
+    return { brl: p.brl, usd: p.usd, somenteFoil: false }
+  }
+  if (p.brl_foil != null && p.usd_foil != null) {
+    return { brl: p.brl_foil, usd: p.usd_foil, somenteFoil: true }
+  }
+  return null
 })
 
 const tituloPreco = computed(() => {
@@ -202,6 +218,10 @@ async function switchSet(s) {
 }
 .preco-brl {
   font-family:'Cinzel',serif; font-size:0.76rem; color:var(--gold-shine); font-weight:600;
+}
+.preco-foil-tag {
+  font-size:0.5rem; letter-spacing:1px; font-style:normal; margin-left:3px;
+  color:var(--obsidian); background:var(--gold); padding:1px 4px; border-radius:2px;
 }
 .preco-usd { font-size:0.58rem; color:var(--parchment-xdk); }
 .collect-actions { display:flex; gap:3px; }

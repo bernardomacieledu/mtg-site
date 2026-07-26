@@ -107,9 +107,14 @@
             <span class="cinzel-caps" style="font-size:0.6rem;">Consultando mercado...</span>
           </div>
 
-          <div v-if="prices?.brl" class="preco-real">
-            <span class="real-valor">R$ {{ prices.brl.toFixed(2) }}</span>
-            <span v-if="prices.brl_foil" class="real-foil">foil R$ {{ prices.brl_foil.toFixed(2) }}</span>
+          <div v-if="valorReal" class="preco-real">
+            <span class="real-valor">
+              R$ {{ valorReal.valor.toFixed(2) }}
+              <em v-if="valorReal.somenteFoil" class="real-tag">foil</em>
+            </span>
+            <span v-if="valorReal.secundario" class="real-foil">
+              foil R$ {{ valorReal.secundario.toFixed(2) }}
+            </span>
             <span class="real-nota">
               estimativa convertida de US$<template v-if="cotacao"> · câmbio {{ cotacao.toFixed(2) }}</template>
             </span>
@@ -202,6 +207,20 @@ const pricesLoading = ref(false)
 const cardName    = computed(() => decodeURIComponent(route.params.name))
 const activeImg   = computed(() => activePrint.value?.image_url || '')
 const cotacao     = ref(null)
+
+// Cartas de coleções especiais saem apenas em foil: sem tratar esse caso, o
+// valor em real sumia da tela mesmo havendo preço.
+const valorReal = computed(() => {
+  const p = prices.value
+  if (!p) return null
+  if (p.brl != null) {
+    return { valor: p.brl, secundario: p.brl_foil ?? null, somenteFoil: false }
+  }
+  if (p.brl_foil != null) {
+    return { valor: p.brl_foil, secundario: null, somenteFoil: true }
+  }
+  return null
+})
 
 // Recarrega o preço ao trocar de impressão; o atraso evita uma requisição por
 // carta ao passar o mouse pela lista.
@@ -352,6 +371,11 @@ watch(cardName, load)
   border:1px solid rgba(184,134,11,0.3); border-radius:4px;
 }
 .real-valor { font-family:'Cinzel',serif; font-size:1.35rem; color:var(--gold-shine); }
+.real-tag {
+  font-family:'Cinzel',serif; font-size:0.55rem; letter-spacing:1px; font-style:normal;
+  color:var(--obsidian); background:var(--gold); padding:2px 6px; border-radius:2px;
+  vertical-align:middle; margin-left:6px;
+}
 .real-foil  { font-size:0.8rem; color:var(--parchment-dk); }
 .real-nota  { flex-basis:100%; font-size:0.6rem; font-style:italic; color:var(--parchment-xdk); }
 

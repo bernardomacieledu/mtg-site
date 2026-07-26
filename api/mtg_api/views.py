@@ -207,13 +207,17 @@ def _enrich(raw_cards, set_names):
         if not registro:
             return None
         usd = float(registro['usd']) if registro['usd'] is not None else None
+        foil = float(registro['usd_foil']) if registro['usd_foil'] is not None else None
         saida = {
             'usd':      usd,
-            'usd_foil': float(registro['usd_foil']) if registro['usd_foil'] is not None else None,
+            'usd_foil': foil,
             'eur':      float(registro['eur']) if registro['eur'] is not None else None,
         }
-        # Estimativa: convertida da cotação do dia, não é preço de mercado local
-        saida['brl'] = round(usd * cotacao, 2) if (usd is not None and cotacao) else None
+        # Estimativa convertida da cotação do dia, não é preço de mercado local.
+        # O foil é convertido à parte: cartas de coleções especiais existem só
+        # em foil, e sem isso ficavam sem valor em real.
+        saida['brl']      = round(usd * cotacao, 2) if (usd is not None and cotacao) else None
+        saida['brl_foil'] = round(foil * cotacao, 2) if (foil is not None and cotacao) else None
         return saida
 
     cards = []
@@ -282,9 +286,13 @@ class CardListView(APIView):
             'rarity_asc':   "MIN(FIELD(rarity,'common','uncommon','rare','mythic')) ASC, name ASC",
             'release_desc': 'MAX(release_date) DESC',
             'release_asc':  'MIN(release_date) ASC',
-            # Cartas sem preço vão para o fim nas duas direções
-            'price_desc':   'MAX(pr.usd) IS NULL, MAX(pr.usd) DESC, name ASC',
-            'price_asc':    'MIN(pr.usd) IS NULL, MIN(pr.usd) ASC, name ASC',
+            # COALESCE para cartas que só existem em foil não caírem no fim
+            # como se não tivessem preço. Sem preço algum vai para o fim nas
+            # duas direções.
+            'price_desc':   ('MAX(COALESCE(pr.usd, pr.usd_foil)) IS NULL, '
+                             'MAX(COALESCE(pr.usd, pr.usd_foil)) DESC, name ASC'),
+            'price_asc':    ('MIN(COALESCE(pr.usd, pr.usd_foil)) IS NULL, '
+                             'MIN(COALESCE(pr.usd, pr.usd_foil)) ASC, name ASC'),
         }.get(sort, 'MAX(release_date) DESC')
 
         where_sql, params = _build_where(
