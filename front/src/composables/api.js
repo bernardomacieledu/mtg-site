@@ -40,7 +40,7 @@ export default api
 // ── Grimório ────────────────────────────────────────────────────────────────
 export const getCards       = (params = {}) => api.get('/cards/', { params })
 export const getCardImages  = (name)        => api.get('/cards/images/', { params: { name } })
-export const getCardPrices  = (name)        => api.get('/cards/prices/', { params: { name } })
+export const getCardPrices  = (name, id)    => api.get('/cards/prices/', { params: { name, id } })
 export const getRules       = (params = {}) => api.get('/rules/', { params })
 export const getManaSymbols = ()            => api.get('/symbols/')
 export const getSets        = ()            => api.get('/sets/')

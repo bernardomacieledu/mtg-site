@@ -202,7 +202,7 @@ async function load() {
 
   // Busca preços em paralelo (não bloqueia a UI)
   try {
-    const { data } = await getCardPrices(cardName.value)
+    const { data } = await getCardPrices(cardName.value, activePrint.value?.scryfall_id)
     prices.value = data.prices
   } catch {
     prices.value = null

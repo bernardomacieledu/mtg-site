@@ -259,7 +259,7 @@ class CardImagesView(APIView):
             return Response({'images': []})
 
         rows = Card.objects.filter(name=name, image_url_normal__isnull=False) \
-            .values('set_code', 'image_url_normal', 'release_date',
+            .values('scryfall_id', 'set_code', 'image_url_normal', 'release_date',
                     'mana_cost', 'cmc', 'type_line', 'oracle_text', 'rarity') \
             .order_by('-release_date')
 
@@ -268,6 +268,8 @@ class CardImagesView(APIView):
         for c in rows:
             info = set_names.get(c['set_code'], {})
             images.append({
+                # necessário para consultar o preço desta impressão específica
+                'scryfall_id': c['scryfall_id'],
                 'set_code':    c['set_code'],
                 'set_name':    info.get('name', c['set_code']),
                 'released_at': info.get('released_at', str(c['release_date']) if c['release_date'] else ''),
@@ -481,7 +483,30 @@ def card_types_list(request):
 
 @api_view(['GET'])
 def card_prices(request):
+    """
+    GET /api/cards/prices/?id=<scryfall_id>&name=<nome>
+
+    Com `id`, devolve o preço daquela impressão específica, lido da tabela
+    alimentada pelo MTGJSON (`manage.py seed_prices`). Antes a consulta era
+    sempre por nome e trazia o preço da impressão padrão, ignorando qual
+    versão o usuário estava vendo.
+    """
     import json as _json, urllib.request as _req, urllib.parse as _parse
+
+    scryfall_id = request.query_params.get('id', '').strip()
+    if scryfall_id:
+        from .models import CardPrice
+        registro = CardPrice.objects.filter(scryfall_id=scryfall_id).first()
+        if registro:
+            precos = {}
+            if registro.usd is not None:      precos['usd'] = str(registro.usd)
+            if registro.usd_foil is not None: precos['usd_foil'] = str(registro.usd_foil)
+            if registro.eur is not None:      precos['eur'] = str(registro.eur)
+            if registro.eur_foil is not None: precos['eur_foil'] = str(registro.eur_foil)
+            if precos:
+                return Response({'prices': precos, 'source': 'mtgjson',
+                                 'price_date': registro.price_date})
+
     name = request.query_params.get('name', '').strip()
     if not name:
         return Response({'prices': None})
@@ -492,7 +517,7 @@ def card_prices(request):
         with _req.urlopen(req, timeout=8) as resp:
             data = _json.loads(resp.read())
         prices = {k: v for k, v in data.get('prices', {}).items() if v is not None}
-        return Response({'prices': prices, 'name': name})
+        return Response({'prices': prices, 'name': name, 'source': 'scryfall'})
     except Exception as e:
         return Response({'prices': None, 'error': str(e)})
 

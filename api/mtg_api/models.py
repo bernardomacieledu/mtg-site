@@ -80,3 +80,30 @@ class ManaSymbol(models.Model):
 
     def __str__(self):
         return self.symbol
+
+
+class CardPrice(models.Model):
+    """
+    Preços por impressão, vindos do MTGJSON (AllPricesToday).
+
+    Fica em tabela própria em vez de colunas novas em `cards`: aquela tabela é
+    legada (managed = False) e alterá-la exigiria ALTER TABLE em bancos que já
+    existem. Aqui o Django cuida do schema via migration.
+
+    A chave é o scryfall_id, que é o que `cards` usa. O uuid do MTGJSON fica
+    guardado para conferência e para buscas de histórico depois.
+    """
+    scryfall_id   = models.CharField(max_length=36, primary_key=True)
+    mtgjson_uuid  = models.CharField(max_length=36, blank=True, default='', db_index=True)
+    usd           = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    usd_foil      = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    eur           = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    eur_foil      = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    price_date    = models.CharField(max_length=10, blank=True, default='')
+    updated_at    = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'mtg_prices'
+
+    def __str__(self):
+        return f'{self.scryfall_id}: US$ {self.usd}'

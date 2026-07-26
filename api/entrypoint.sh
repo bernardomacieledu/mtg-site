@@ -44,5 +44,10 @@ else
   echo "    SEED_ON_START=0, pulando."
 fi
 
+if [ "${SEED_PRICES:-0}" = "1" ]; then
+  echo "==> Precos: importando do MTGJSON em segundo plano..."
+  ( python manage.py seed_prices || echo "!! Precos indisponiveis; rode: docker compose exec api python manage.py seed_prices" ) &
+fi
+
 echo "==> API pronta em http://localhost:${API_PORT:-8000}/api/"
 exec "$@"
