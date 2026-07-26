@@ -158,11 +158,13 @@ def _fetch_grouped(where_sql, params, limit, offset, order_by='MAX(release_date)
                MAX(rarity)           AS rarity,
                SUBSTRING_INDEX(GROUP_CONCAT(image_url_normal ORDER BY release_date DESC), ',', 1) AS image_url_normal,
                GROUP_CONCAT(DISTINCT set_code ORDER BY release_date DESC) AS set_codes,
-               GROUP_CONCAT(CONCAT(set_code, '|', scryfall_id)
+               GROUP_CONCAT(CONCAT(set_code, '|', cards.scryfall_id)
                             ORDER BY release_date DESC) AS impressoes,
                MAX(release_date)     AS latest_release,
                MIN(release_date)     AS first_release
-        FROM cards WHERE {where_sql}
+        FROM cards
+        LEFT JOIN mtg_prices pr ON pr.scryfall_id = cards.scryfall_id
+        WHERE {where_sql}
         GROUP BY name ORDER BY {order_by}
         LIMIT %s OFFSET %s
     """
@@ -280,6 +282,9 @@ class CardListView(APIView):
             'rarity_asc':   "MIN(FIELD(rarity,'common','uncommon','rare','mythic')) ASC, name ASC",
             'release_desc': 'MAX(release_date) DESC',
             'release_asc':  'MIN(release_date) ASC',
+            # Cartas sem preço vão para o fim nas duas direções
+            'price_desc':   'MAX(pr.usd) IS NULL, MAX(pr.usd) DESC, name ASC',
+            'price_asc':    'MIN(pr.usd) IS NULL, MIN(pr.usd) ASC, name ASC',
         }.get(sort, 'MAX(release_date) DESC')
 
         where_sql, params = _build_where(
@@ -314,6 +319,36 @@ class CardImagesView(APIView):
             .order_by('-release_date')
 
         set_names = get_set_names()
+
+        # O preço de cada impressão vai junto da lista: a tela não precisa de
+        # uma requisição por impressão e não há como exibir o valor de uma
+        # versão em outra.
+        from .models import CardPrice
+        cotacao = get_usd_brl_rate()
+        tabela = {
+            registro['scryfall_id']: registro
+            for registro in CardPrice.objects
+                .filter(scryfall_id__in=[c['scryfall_id'] for c in rows])
+                .values('scryfall_id', 'usd', 'usd_foil', 'eur', 'eur_foil', 'price_date')
+        }
+
+        def precos_de(scryfall_id):
+            registro = tabela.get(scryfall_id)
+            if not registro:
+                return None
+
+            def num(valor):
+                return float(valor) if valor is not None else None
+
+            usd, foil = num(registro['usd']), num(registro['usd_foil'])
+            return {
+                'usd': usd, 'usd_foil': foil,
+                'eur': num(registro['eur']), 'eur_foil': num(registro['eur_foil']),
+                'brl':      round(usd * cotacao, 2) if (usd is not None and cotacao) else None,
+                'brl_foil': round(foil * cotacao, 2) if (foil is not None and cotacao) else None,
+                'price_date': registro['price_date'],
+            }
+
         images = []
         for c in rows:
             info = set_names.get(c['set_code'], {})
@@ -331,9 +366,10 @@ class CardImagesView(APIView):
                 'type_line':   c['type_line'] or '',
                 'oracle_text': c['oracle_text'] or '',
                 'rarity':      c['rarity'] or 'common',
+                'prices':      precos_de(c['scryfall_id']),
             })
 
-        return Response({'name': name, 'images': images})
+        return Response({'name': name, 'images': images, 'usd_brl': cotacao})
 
 
 class CollectionsView(APIView):

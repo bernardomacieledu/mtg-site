@@ -210,6 +210,8 @@ const SORT_OPTIONS = [
   { id: 'release_asc',  label: 'Lançamento (mais antigas)' },
   { id: 'cmc_desc',     label: 'Custo de mana (maior)' },
   { id: 'cmc_asc',      label: 'Custo de mana (menor)' },
+  { id: 'price_desc',   label: 'Preço (maior primeiro)' },
+  { id: 'price_asc',    label: 'Preço (menor primeiro)' },
   { id: 'rarity_desc',  label: 'Raridade (mítica → comum)' },
   { id: 'rarity_asc',   label: 'Raridade (comum → mítica)' },
   { id: 'name',         label: 'Nome (A–Z)' },

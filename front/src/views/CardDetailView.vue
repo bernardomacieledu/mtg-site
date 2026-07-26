@@ -205,12 +205,19 @@ const cotacao     = ref(null)
 
 // Recarrega o preço ao trocar de impressão; o atraso evita uma requisição por
 // carta ao passar o mouse pela lista.
+// O preço já vem com a impressão. A consulta só acontece quando aquela
+// impressão ainda não tem valor gravado — antes, uma falha em passar o id
+// fazia todas as versões exibirem o preço da impressão padrão.
 let timerPreco = null
-watch(() => activePrint.value?.scryfall_id, (id) => {
-  if (!id) return
+watch(activePrint, (p) => {
   clearTimeout(timerPreco)
+  if (!p) return
+  if (p.prices) {
+    prices.value = p.prices
+    return
+  }
   timerPreco = setTimeout(loadPrices, 350)
-})
+}, { immediate: true })
 const currentCard = computed(() => activePrint.value)
 const hasPrices   = computed(() =>
   prices.value && Object.values(prices.value).some(v => v !== null && v !== undefined)
@@ -225,6 +232,7 @@ async function load() {
   try {
     const { data } = await getCardImages(cardName.value)
     prints.value  = data.images || []
+    cotacao.value = data.usd_brl || null
     fixada.value  = prints.value[0] || null
     hovered.value = null
   } catch (e) {
