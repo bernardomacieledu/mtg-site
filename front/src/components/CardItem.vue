@@ -195,7 +195,9 @@ watch(() => props.card, (nova) => { indiceAtivo.value = nova?.default_index ?? 0
 }
 
 .card-art { position: relative; background: #080604; padding: 12px 12px 0; cursor: pointer; }
-.card-img  { width: 100%; border-radius: 3px; display: block; }
+.card-img {
+  width:100%; display:block; aspect-ratio:63/88; object-fit:cover;
+}
 
 .detail-hint {
   position: absolute; bottom: 8px; right: 12px;

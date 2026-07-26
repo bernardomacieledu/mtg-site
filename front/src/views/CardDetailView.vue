@@ -13,10 +13,20 @@
 
       <!-- ── Esquerda: imagem + impressões ── -->
       <div class="detail-left">
+        <!-- Quadro de altura fixa: existe mesmo sem imagem, para a página não
+             saltar ao alternar de impressão -->
         <div class="art-frame">
-          <Transition name="img-fade" mode="out-in">
-            <img :key="activeImg" :src="activeImg" :alt="cardName" class="detail-img" />
-          </Transition>
+          <img
+            v-if="imagemExibida"
+            :src="imagemExibida"
+            :alt="cardName"
+            class="detail-img"
+            :class="{ trocando: carregandoImg }"
+          />
+          <div v-else class="art-vazia">
+            <span class="art-vazia-icone">✦</span>
+          </div>
+          <div v-if="carregandoImg" class="art-carregando"><div class="spinner"></div></div>
         </div>
 
         <div class="prints-label cinzel-caps">
@@ -206,6 +216,33 @@ const pricesLoading = ref(false)
 
 const cardName    = computed(() => decodeURIComponent(route.params.name))
 const activeImg   = computed(() => activePrint.value?.image_url || '')
+
+// A imagem atual permanece na tela até a próxima terminar de carregar. Antes,
+// a transição removia a antiga primeiro: o quadro ficava vazio durante o
+// download e a página inteira subia e descia a cada troca de impressão.
+const imagemExibida = ref('')
+const carregandoImg = ref(false)
+
+watch(activeImg, (nova) => {
+  if (!nova || nova === imagemExibida.value) return
+
+  if (!imagemExibida.value) {          // primeira carga: mostra direto
+    imagemExibida.value = nova
+    return
+  }
+
+  carregandoImg.value = true
+  const precarga = new Image()
+  const concluir = () => {
+    // Ignora se o usuário já trocou de impressão nesse meio-tempo
+    if (activeImg.value !== nova) return
+    imagemExibida.value = nova
+    carregandoImg.value = false
+  }
+  precarga.onload = concluir
+  precarga.onerror = concluir
+  precarga.src = nova
+}, { immediate: true })
 const cotacao     = ref(null)
 
 // Cartas de coleções especiais saem apenas em foil: sem tratar esse caso, o
@@ -250,7 +287,8 @@ async function load() {
 
   try {
     const { data } = await getCardImages(cardName.value)
-    prints.value  = data.images || []
+    prints.value    = data.images || []
+    imagemExibida.value = ''
     cotacao.value = data.usd_brl || null
     fixada.value  = prints.value[0] || null
     hovered.value = null
@@ -294,16 +332,34 @@ watch(cardName, load)
 
 /* ── Esquerda ── */
 .art-frame {
+  position: relative;
+  /* Proporção de uma carta de Magic: o quadro guarda a altura mesmo vazio */
+  aspect-ratio: 63 / 88;
   background: rgba(0,0,0,0.3);
   border: 1px solid rgba(184,134,11,0.25);
   border-radius: 8px; padding: 12px;
   margin-bottom: 1.5rem;
   box-shadow: 0 20px 60px rgba(0,0,0,0.6);
 }
-.detail-img { width:100%; border-radius:6px; display:block; }
+.art-vazia {
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px dashed rgba(184,134,11,0.2); border-radius: 6px;
+}
+.art-vazia-icone { font-size: 1.6rem; color: rgba(184,134,11,0.35); }
+.art-carregando {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: none;
+}
+.detail-img {
+  width: 100%; height: 100%; object-fit: contain;
+  border-radius: 6px; display: block;
+  transition: opacity 0.18s;
+}
+.detail-img.trocando { opacity: 0.45; }
 
-.img-fade-enter-active, .img-fade-leave-active { transition: opacity 0.25s; }
-.img-fade-enter-from, .img-fade-leave-to { opacity: 0; }
+
 
 .prints-label { font-size:0.6rem; letter-spacing:3px; color:var(--gold); margin-bottom:0.8rem; }
 .prints-dica { display:block; margin-top:3px; font-size:0.55rem; letter-spacing:0; text-transform:none;
