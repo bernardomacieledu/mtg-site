@@ -8,6 +8,27 @@ from .models import Card, Rule
 from .scryfall import get_set_names, get_mana_map
 
 
+KEYWORD_PATTERNS = {
+    'flying':        '[[:<:]]Flying[[:>:]]',
+    'first strike':  '[[:<:]]First strike[[:>:]]',
+    'double strike': '[[:<:]]Double strike[[:>:]]',
+    'deathtouch':    '[[:<:]]Deathtouch[[:>:]]',
+    'lifelink':      '[[:<:]]Lifelink[[:>:]]',
+    'trample':       '[[:<:]]Trample[[:>:]]',
+    'haste':         '[[:<:]]Haste[[:>:]]',
+    'vigilance':     '[[:<:]]Vigilance[[:>:]]',
+    'reach':         '[[:<:]]Reach[[:>:]]',
+    'menace':        '[[:<:]]Menace[[:>:]]',
+    'hexproof':      '[[:<:]]Hexproof[[:>:]]',
+    'shroud':        '[[:<:]]Shroud[[:>:]]',
+    'indestructible':'[[:<:]]Indestructible[[:>:]]',
+    'defender':      '[[:<:]]Defender[[:>:]]',
+    'flash':         '[[:<:]]Flash[[:>:]]',
+    'ward':          '[[:<:]]Ward[[:>:]]',
+    'prowess':       '[[:<:]]Prowess[[:>:]]',
+}
+
+
 def _safe_int(value, default, minimum=None, maximum=None):
     """Converte para int sem estourar 500 quando o usuário manda lixo na query string."""
     try:
@@ -39,7 +60,8 @@ def _safe_float(value):
         return None
 
 
-def _build_where(search='', set_code='', rarity='', card_type='', cmc='', cmc_op='=', date_from='', date_to='', colors=''):
+def _build_where(search='', set_code='', rarity='', card_type='', cmc='', cmc_op='=',
+                 date_from='', date_to='', colors='', extra=None):
     where  = ['image_url_normal IS NOT NULL']
     params = []
 
@@ -67,22 +89,51 @@ def _build_where(search='', set_code='', rarity='', card_type='', cmc='', cmc_op
         where.append('release_date <= %s')
         params.append(date_to)
 
+    opcoes = extra or {}
+
     if colors:
+        # 'and' = precisa ter todas as cores marcadas (padrão); 'or' = qualquer uma
+        juncao = ' OR ' if opcoes.get('color_mode', 'and').lower() == 'or' else ' AND '
+        clausulas, valores = [], []
         for col in colors.split(','):
             # O front envia "{W},{U}"; aceita também "W,U" para uso direto da API.
             col = col.strip().upper().strip('{}')
             if col in ('W', 'U', 'B', 'R', 'G'):
-                # Casa o símbolo exato ({W}) e híbridos ({W/U}, {2/W}) — antes um
-                # LIKE '%W%' solto casava com qualquer texto que tivesse a letra.
-                where.append("(mana_cost LIKE %s OR mana_cost LIKE %s OR mana_cost LIKE %s)")
-                params += [f'%{{{col}}}%', f'%{{{col}/%', f'%/{col}}}%']
+                # Casa o símbolo exato ({W}) e híbridos ({W/U}, {2/W})
+                clausulas.append('(mana_cost LIKE %s OR mana_cost LIKE %s OR mana_cost LIKE %s)')
+                valores += [f'%{{{col}}}%', f'%{{{col}/%', f'%/{col}}}%']
             elif col == 'C':
-                where.append("(mana_cost IS NULL OR mana_cost = '' OR "
-                             "mana_cost NOT REGEXP '\\{(W|U|B|R|G)')")
+                clausulas.append("(mana_cost IS NULL OR mana_cost = '' OR "
+                                 "mana_cost NOT REGEXP '\\{(W|U|B|R|G)')")
+        if clausulas:
+            where.append('(' + juncao.join(clausulas) + ')')
+            params += valores
+
+    if opcoes.get('legendary') in ('1', 'true', 'True'):
+        where.append('type_line LIKE %s')
+        params.append('%Legendary%')
+
+    if opcoes.get('nonlegendary') in ('1', 'true', 'True'):
+        where.append('(type_line IS NULL OR type_line NOT LIKE %s)')
+        params.append('%Legendary%')
+
+    # Habilidades de palavra-chave, buscadas no texto de regras da carta
+    palavras = [k.strip().lower() for k in (opcoes.get('keywords') or '').split(',') if k.strip()]
+    if palavras:
+        juncao_kw = ' OR ' if opcoes.get('keyword_mode', 'and').lower() == 'or' else ' AND '
+        partes = []
+        for palavra in palavras[:8]:
+            padrao = KEYWORD_PATTERNS.get(palavra)
+            if padrao:
+                partes.append('oracle_text REGEXP %s')
+                params.append(padrao)
+        if partes:
+            where.append('(' + juncao_kw.join(partes) + ')')
+
     return ' AND '.join(where), params
 
 
-def _fetch_grouped(where_sql, params, limit, offset):
+def _fetch_grouped(where_sql, params, limit, offset, order_by='MAX(release_date) DESC'):
     sql = f"""
         SELECT name,
                MAX(mana_cost)        AS mana_cost,
@@ -95,7 +146,7 @@ def _fetch_grouped(where_sql, params, limit, offset):
                MAX(release_date)     AS latest_release,
                MIN(release_date)     AS first_release
         FROM cards WHERE {where_sql}
-        GROUP BY name ORDER BY MAX(release_date) DESC
+        GROUP BY name ORDER BY {order_by}
         LIMIT %s OFFSET %s
     """
     with connection.cursor() as cur:
@@ -154,12 +205,27 @@ class CardListView(APIView):
         page_size = _safe_int(p.get('page_size', 24), 24, minimum=1, maximum=48)
 
         colors    = p.get('colors', '').strip()
-        where_sql, params = _build_where(search, set_code, rarity, card_type, cmc, cmc_op, date_from, date_to, colors)
+        sort = p.get('sort', 'release_desc')
+        ordem = {
+            'name':         'name ASC',
+            'name_desc':    'name DESC',
+            'cmc_desc':     'MAX(cmc) DESC, name ASC',
+            'cmc_asc':      'MAX(cmc) ASC, name ASC',
+            'rarity_desc':  "MIN(FIELD(rarity,'mythic','rare','uncommon','common')) ASC, name ASC",
+            'rarity_asc':   "MIN(FIELD(rarity,'common','uncommon','rare','mythic')) ASC, name ASC",
+            'release_desc': 'MAX(release_date) DESC',
+            'release_asc':  'MIN(release_date) ASC',
+        }.get(sort, 'MAX(release_date) DESC')
+
+        where_sql, params = _build_where(
+            search, set_code, rarity, card_type, cmc, cmc_op, date_from, date_to, colors,
+            extra=p,
+        )
         total  = _count_grouped(where_sql, params)
         offset = (page - 1) * page_size
 
         set_names = get_set_names()
-        raw   = _fetch_grouped(where_sql, params, page_size, offset)
+        raw   = _fetch_grouped(where_sql, params, page_size, offset, ordem)
         cards = _enrich(raw, set_names)
 
         return Response({

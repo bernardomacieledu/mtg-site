@@ -3,7 +3,7 @@
     <div v-if="store.draftCount > 0 && !hidden" class="dock">
       <button class="dock-close" title="Ocultar" @click="hidden = true">×</button>
 
-      <div class="dock-info" @click="goToBuilder">
+      <div class="dock-info" @click="goToBuilder" @mouseenter="clearTimeout(temporizador)">
         <span class="dock-icon">📦</span>
         <div>
           <div class="dock-name">{{ store.draft.name }}</div>
@@ -19,7 +19,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useCollectionsStore } from '@/stores/collections'
 
@@ -34,9 +34,23 @@ function goToBuilder() {
 
 // Some na própria tela de montagem e reaparece ao adicionar carta em outra tela
 watch(() => route.name, (name) => { hidden.value = name === 'collection-builder' }, { immediate: true })
+let temporizador = null
+
+function agendarOcultacao() {
+  clearTimeout(temporizador)
+  // Some sozinho: é um aviso de progresso, não um painel permanente
+  temporizador = setTimeout(() => { hidden.value = true }, 6000)
+}
+
 watch(() => store.draftCount, (value, previous) => {
-  if (value > previous && route.name !== 'collection-builder') hidden.value = false
+  if (value > previous && route.name !== 'collection-builder') {
+    hidden.value = false
+    agendarOcultacao()
+  }
 })
+
+onMounted(() => { if (store.draftCount > 0) agendarOcultacao() })
+onBeforeUnmount(() => clearTimeout(temporizador))
 </script>
 
 <style scoped>

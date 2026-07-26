@@ -86,7 +86,8 @@ export function buildCollectionPayload(name, cards) {
 export const useCollectionsStore = defineStore('collections', () => {
   const auth = useAuthStore()
 
-  const list    = ref([])                                   // resumos das coleções salvas
+  const list    = ref([])
+  const pendingCard = ref(null)          // carta aguardando escolha de coleção                                   // resumos das coleções salvas
   const draft   = ref(readLocal(DRAFT_KEY, { name: 'Nova Coleção', cards: [] }))
   const loading = ref(false)
   const saving  = ref(false)
@@ -258,8 +259,83 @@ export const useCollectionsStore = defineStore('collections', () => {
     await loadList()
   }
 
+  /** Abre o modal de escolha de coleção para esta carta. */
+  function requestAdd(card) {
+    pendingCard.value = card
+  }
+
+  function _normaliza(card, firstSet) {
+    return {
+      name: card.name, qty: 1,
+      mana_cost: card.mana_cost || '', cmc: card.cmc ?? 0,
+      type_line: card.type_line || '', oracle_text: card.oracle_text || '',
+      rarity: card.rarity || 'common', colors: card.colors || [],
+      set: card.set || firstSet?.code || '',
+      set_name: card.set_name || firstSet?.name || '',
+      image_url: card.image_url || card.image_url_normal || '',
+      category: card.category || classify(card.type_line || ''),
+      prints: card.prints || [],
+    }
+  }
+
+  /** Adiciona a carta a uma coleção já existente e salva. */
+  async function addCardToCollection(id, card) {
+    try {
+      const dados = await getCollection(id)
+      if (!dados) return { error: 'Coleção não encontrada.' }
+
+      const cartas = [...(dados.cards || [])]
+      const existente = cartas.find(c => c.name === card.name)
+      if (existente) existente.qty += 1
+      else cartas.push(_normaliza(card, card.sets?.[0]))
+
+      const payload = buildCollectionPayload(dados.name, cartas)
+
+      if (auth.isLoggedIn) {
+        await apiSaveCollection({
+          id, name: payload.name, cards: payload.cards, by_set: payload.bySet,
+          by_rarity: payload.byRarity, by_category: payload.byCategory, stats: payload.stats,
+        })
+      } else {
+        const todas = readLocal(LOCAL_KEY, [])
+        const indice = todas.findIndex(c => String(c.id) === String(id))
+        const registro = { ...payload, id, updated_at: new Date().toISOString() }
+        if (indice >= 0) todas[indice] = registro
+        else todas.push(registro)
+        localStorage.setItem(LOCAL_KEY, JSON.stringify(todas))
+      }
+
+      await loadList()
+      return { id }
+    } catch (error) {
+      return { error: error.response?.data?.error || 'Não foi possível salvar.' }
+    }
+  }
+
+  /** Cria uma coleção nova já com a carta dentro. */
+  async function createCollectionWithCard(nome, card) {
+    const payload = buildCollectionPayload(nome, [_normaliza(card, card.sets?.[0])])
+    try {
+      if (auth.isLoggedIn) {
+        await apiSaveCollection({
+          name: payload.name, cards: payload.cards, by_set: payload.bySet,
+          by_rarity: payload.byRarity, by_category: payload.byCategory, stats: payload.stats,
+        })
+      } else {
+        const todas = readLocal(LOCAL_KEY, [])
+        todas.push({ ...payload, id: `local-${Date.now()}`, updated_at: new Date().toISOString() })
+        localStorage.setItem(LOCAL_KEY, JSON.stringify(todas))
+      }
+      await loadList()
+      return { ok: true }
+    } catch (error) {
+      return { error: error.response?.data?.error || 'Não foi possível criar a coleção.' }
+    }
+  }
+
   return {
-    list, draft, loading, saving,
+    list, draft, loading, saving, pendingCard,
+    requestAdd, addCardToCollection, createCollectionWithCard,
     draftCount, draftUnique, isEmpty,
     qtyOf, addCard, removeCard, setQty, clearDraft, renameDraft,
     loadList, getCollection, editCollection, saveDraft, removeCollection, rename,

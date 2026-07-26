@@ -101,7 +101,8 @@ const currentImage  = computed(() => imageCache.value[activeSet.value] || props.
 const inCollection  = computed(() => collections.qtyOf(props.card.name))
 
 function addToCollection() {
-  collections.addCard({
+  // Abre o modal para o usuário escolher (ou criar) a coleção de destino
+  collections.requestAdd({
     ...props.card,
     set:       activeSet.value,
     set_name:  props.card.sets?.find(s => s.code === activeSet.value)?.name || activeSet.value,

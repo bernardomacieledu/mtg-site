@@ -20,6 +20,13 @@
         </select>
       </div>
 
+      <div class="field-wrap field-md">
+        <label class="field-label">⇅ Ordenar</label>
+        <select v-model="f.sort" class="medieval-input">
+          <option v-for="o in SORT_OPTIONS" :key="o.id" :value="o.id">{{ o.label }}</option>
+        </select>
+      </div>
+
       <div class="field-wrap field-btn">
         <label class="field-label" style="opacity:0">.</label>
         <div style="display:flex;gap:8px;align-items:center;">
@@ -75,7 +82,14 @@
 
         <!-- Cores de mana -->
         <div class="field-wrap field-colors">
-          <label class="field-label">🎨 Cor</label>
+          <label class="field-label">
+            🎨 Cor
+            <button
+              class="mode-toggle"
+              :title="f.color_mode === 'and' ? 'Precisa ter todas as cores marcadas' : 'Basta ter qualquer uma'"
+              @click="f.color_mode = f.color_mode === 'and' ? 'or' : 'and'"
+            >{{ f.color_mode === 'and' ? 'TODAS' : 'QUALQUER' }}</button>
+          </label>
           <div class="color-pips">
             <button
               v-for="c in manaColors"
@@ -88,6 +102,36 @@
               <img v-if="manaMap[c.sym]" :src="manaMap[c.sym]" class="ms" />
               <span v-else>{{ c.sym }}</span>
             </button>
+          </div>
+        </div>
+
+        <!-- Lendária -->
+        <div class="field-wrap field-sm">
+          <label class="field-label">👑 Supertipo</label>
+          <label class="check-line">
+            <input type="checkbox" v-model="f.legendary" @change="doSearch" />
+            <span>Somente lendárias</span>
+          </label>
+        </div>
+
+        <!-- Habilidades -->
+        <div class="field-wrap field-keywords">
+          <label class="field-label">
+            ✦ Habilidades
+            <button
+              class="mode-toggle"
+              :title="f.keyword_mode === 'and' ? 'Precisa ter todas' : 'Basta ter qualquer uma'"
+              @click="f.keyword_mode = f.keyword_mode === 'and' ? 'or' : 'and'"
+            >{{ f.keyword_mode === 'and' ? 'TODAS' : 'QUALQUER' }}</button>
+          </label>
+          <div class="kw-chips">
+            <button
+              v-for="kw in KEYWORDS"
+              :key="kw.id"
+              class="kw-chip"
+              :class="{ active: (f.keywords || []).includes(kw.id) }"
+              @click="toggleKeyword(kw.id); doSearch()"
+            >{{ kw.label }}</button>
           </div>
         </div>
 
@@ -107,7 +151,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { getCardTypes } from '@/composables/api'
 import { useMana } from '@/composables/useMana'
 
@@ -127,6 +171,37 @@ const manaColors = [
   { sym: '{B}', name: 'Preto'  },
   { sym: '{R}', name: 'Vermelho'},
   { sym: '{G}', name: 'Verde'  },
+  { sym: '{C}', name: 'Incolor' },
+]
+
+const KEYWORDS = [
+  { id: 'flying',        label: 'Voar' },
+  { id: 'deathtouch',    label: 'Toque mortífero' },
+  { id: 'lifelink',      label: 'Vínculo com a vida' },
+  { id: 'trample',       label: 'Atropelar' },
+  { id: 'first strike',  label: 'Iniciativa' },
+  { id: 'double strike', label: 'Golpe duplo' },
+  { id: 'haste',         label: 'Ímpeto' },
+  { id: 'vigilance',     label: 'Vigilância' },
+  { id: 'reach',         label: 'Alcance' },
+  { id: 'menace',        label: 'Ameaçar' },
+  { id: 'hexproof',      label: 'Resistência a magia' },
+  { id: 'indestructible',label: 'Indestrutível' },
+  { id: 'flash',         label: 'Lampejo' },
+  { id: 'defender',      label: 'Defensor' },
+  { id: 'ward',          label: 'Proteção (ward)' },
+  { id: 'prowess',       label: 'Ardil' },
+]
+
+const SORT_OPTIONS = [
+  { id: 'release_desc', label: 'Lançamento (mais novas)' },
+  { id: 'release_asc',  label: 'Lançamento (mais antigas)' },
+  { id: 'cmc_desc',     label: 'Custo de mana (maior)' },
+  { id: 'cmc_asc',      label: 'Custo de mana (menor)' },
+  { id: 'rarity_desc',  label: 'Raridade (mítica → comum)' },
+  { id: 'rarity_asc',   label: 'Raridade (comum → mítica)' },
+  { id: 'name',         label: 'Nome (A–Z)' },
+  { id: 'name_desc',    label: 'Nome (Z–A)' },
 ]
 
 const typeLabels = {
@@ -136,22 +211,45 @@ const typeLabels = {
 }
 const typeLabel = t => typeLabels[t] || t
 
+function normalizaCores(valor) {
+  // A URL devolve "{W},{U}" (string) e o componente trabalha com array.
+  // O spread de initialFilters vinha DEPOIS e sobrescrevia o array pela string,
+  // fazendo f.colors.push() estourar "is not a function" ao clicar num pip.
+  if (Array.isArray(valor)) return [...valor]
+  if (typeof valor === 'string' && valor) return valor.split(',').filter(Boolean)
+  return []
+}
+
 const f = reactive({
   q: '', set: '', rarity: '', type: '',
   cmc: '', cmc_op: '=',
-  colors: Array.isArray(props.initialFilters?.colors) ? props.initialFilters.colors : [],
   date_from: '', date_to: '',
+  sort: 'release_desc',
+  color_mode: 'and',
+  legendary: false,
+  keywords: [],
+  keyword_mode: 'and',
   ...props.initialFilters,
+  // sempre por último: garante os tipos corretos independentemente do que veio
+  colors: normalizaCores(props.initialFilters?.colors),
 })
 
 const hasFilters = computed(() =>
   f.q || f.set || f.rarity || f.type || f.cmc !== '' ||
-  f.colors.length || f.date_from || f.date_to
+  (f.colors?.length || 0) || f.date_from || f.date_to ||
+  f.legendary || (f.keywords?.length || 0)
 )
 
 function toggleColor(sym) {
+  if (!Array.isArray(f.colors)) f.colors = normalizaCores(f.colors)
   const i = f.colors.indexOf(sym)
   i === -1 ? f.colors.push(sym) : f.colors.splice(i, 1)
+}
+
+function toggleKeyword(kw) {
+  if (!Array.isArray(f.keywords)) f.keywords = []
+  const i = f.keywords.indexOf(kw)
+  i === -1 ? f.keywords.push(kw) : f.keywords.splice(i, 1)
 }
 
 function buildColorQuery() {
@@ -165,13 +263,22 @@ function doSearch() {
     q: f.q, set: f.set, rarity: f.rarity, type: f.type,
     cmc: f.cmc, cmc_op: f.cmc_op,
     colors: buildColorQuery(),
+    color_mode: f.color_mode,
+    legendary: f.legendary ? '1' : '',
+    keywords: Array.isArray(f.keywords) ? f.keywords.join(',') : '',
+    keyword_mode: f.keyword_mode,
+    sort: f.sort,
     date_from: f.date_from, date_to: f.date_to,
   })
 }
 
+// Ordenação e modos aplicam na hora: são ajustes de visualização
+watch(() => [f.sort, f.color_mode, f.keyword_mode], doSearch)
+
 function clear() {
-  Object.assign(f, { q:'', set:'', rarity:'', type:'', cmc:'', cmc_op:'=', colors:[], date_from:'', date_to:'' })
-  emit('search', { q:'', set:'', rarity:'', type:'', cmc:'', cmc_op:'=', colors:'', date_from:'', date_to:'' })
+  Object.assign(f, { q:'', set:'', rarity:'', type:'', cmc:'', cmc_op:'=', colors:[],
+                     date_from:'', date_to:'', legendary:false, keywords:[] })
+  doSearch()
 }
 
 onMounted(async () => {
@@ -217,7 +324,29 @@ onMounted(async () => {
 .toggle-advanced:hover { border-color: var(--gold); color: var(--gold-shine); }
 
 /* Color pips */
-.color-pips { display: flex; gap: 6px; padding-top: 2px; }
+.color-pips { display: flex; gap: 6px; padding-top: 2px; flex-wrap: wrap; }
+
+.mode-toggle {
+  margin-left: 8px; padding: 1px 6px; cursor: pointer;
+  background: rgba(184,134,11,0.14); border: 1px solid rgba(184,134,11,0.4);
+  color: var(--gold-shine); border-radius: 2px;
+  font-family: 'Cinzel', serif; font-size: 0.5rem; letter-spacing: 1px;
+}
+.mode-toggle:hover { background: var(--gold); color: var(--obsidian); }
+
+.check-line { display: flex; align-items: center; gap: 6px; padding-top: 8px;
+  font-size: 0.75rem; color: var(--parchment-dk); cursor: pointer; }
+.check-line input { accent-color: var(--gold); cursor: pointer; }
+
+.field-keywords { flex: 1 1 100%; }
+.kw-chips { display: flex; flex-wrap: wrap; gap: 5px; padding-top: 4px; }
+.kw-chip {
+  background: rgba(0,0,0,0.3); border: 1px solid rgba(184,134,11,0.22);
+  color: var(--parchment-dk); border-radius: 2px; padding: 4px 9px;
+  font-size: 0.66rem; cursor: pointer; transition: all 0.18s;
+}
+.kw-chip:hover { border-color: var(--gold); color: var(--gold-shine); }
+.kw-chip.active { background: rgba(184,134,11,0.22); border-color: var(--gold); color: var(--gold-shine); }
 .pip-btn {
   width: 34px; height: 34px; border-radius: 50%;
   border: 2px solid rgba(184,134,11,0.25);

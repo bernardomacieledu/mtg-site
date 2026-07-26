@@ -4,5 +4,6 @@ django-cors-headers>=4.3
 PyJWT>=2.8            # usado por auth_app.views (faltava no requirements original)
 PyMySQL>=1.1.0        # driver usado em core/settings.py
 cryptography>=42.0    # exigido pelo PyMySQL para o caching_sha2_password (MySQL 8)
+pdfplumber>=0.11    # leitura do PDF das Regras Abrangentes em portugues
 gunicorn>=22.0
 whitenoise>=6.6

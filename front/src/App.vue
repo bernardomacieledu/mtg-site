@@ -62,6 +62,7 @@
     </RouterView>
 
     <CollectionDock />
+    <AddToCollectionModal />
 
     <Transition name="fade">
       <button v-if="showScrollTop" class="scroll-top-btn" @click="scrollTop" title="Voltar ao topo">▲</button>
@@ -75,6 +76,7 @@ import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import UserMenu from '@/components/UserMenu.vue'
 import CollectionDock from '@/components/CollectionDock.vue'
+import AddToCollectionModal from '@/components/AddToCollectionModal.vue'
 
 const auth         = useAuthStore()
 const mobileOpen   = ref(false)
