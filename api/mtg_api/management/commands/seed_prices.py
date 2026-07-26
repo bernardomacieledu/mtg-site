@@ -15,12 +15,15 @@ import json
 import time
 import urllib.request
 
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
 
 from mtg_api.models import CardPrice
 
 MTGJSON = 'https://mtgjson.com/api/v5'
+CACHE_SETS = settings.SCRYFALL_CACHE_DIR / 'mtgjson_sets'
+CACHE_SETS.mkdir(parents=True, exist_ok=True)
 HEADERS = {'User-Agent': 'MTGNexus-Seed/1.0', 'Accept': 'application/json'}
 
 
@@ -104,11 +107,83 @@ class Command(BaseCommand):
     help = 'Importa preços por impressão a partir do MTGJSON.'
 
     def add_arguments(self, parser):
+        parser.add_argument('--source', choices=['scryfall', 'mtgjson'], default='scryfall',
+                            help='scryfall (padrão): um download, sem mapeamento. '
+                                 'mtgjson: mais fontes de preço, porém bem mais lento.')
         parser.add_argument('--sets', type=str, default='',
-                            help='Códigos de coleção separados por vírgula.')
+                            help='Só com --source mtgjson: coleções a mapear.')
         parser.add_argument('--delay', type=float, default=0.1)
+        parser.add_argument('--cache-sets', action='store_true', default=True,
+                            help='Guarda os arquivos de coleção em disco para reaproveitar.')
 
     def handle(self, *args, **options):
+        if options['source'] == 'scryfall':
+            return self.importar_do_scryfall()
+        return self.importar_do_mtgjson(*args, **options)
+
+    def importar_do_scryfall(self):
+        """
+        Lê os preços direto do bulk do Scryfall.
+
+        O arquivo é indexado pelo próprio id do Scryfall, que é a chave da nossa
+        tabela: dispensa o mapa de uuid e, com isso, os 600+ downloads que o
+        caminho do MTGJSON exige. Os valores são os mesmos de TCGplayer (USD) e
+        Cardmarket (EUR) — o MTGJSON só agrega mais fontes e histórico.
+        """
+        from mtg_api.management.commands.seed_cards import (get_json as _get_json,
+                                                            stream_bulk_cards)
+
+        self.stdout.write('Consultando os arquivos bulk do Scryfall...')
+        try:
+            catalogo = _get_json('https://api.scryfall.com/bulk-data')
+        except Exception as exc:
+            raise CommandError(f'Não foi possível listar os arquivos bulk ({exc}).') from None
+
+        entrada = next((item for item in catalogo.get('data', [])
+                        if item.get('type') == 'default_cards'), None)
+        if not entrada:
+            raise CommandError('Arquivo "default_cards" não encontrado no Scryfall.')
+
+        tamanho = entrada.get('size', 0) / (1024 * 1024)
+        self.stdout.write(f'Baixando preços de {entrada["download_uri"]} (~{tamanho:.0f} MB)...')
+
+        def decimal(valor):
+            try:
+                return round(float(valor), 2) if valor not in (None, '') else None
+            except (TypeError, ValueError):
+                return None
+
+        lote, gravados, lidos = [], 0, 0
+        for carta in stream_bulk_cards(entrada['download_uri']):
+            lidos += 1
+            precos = carta.get('prices') or {}
+            usd      = decimal(precos.get('usd'))
+            usd_foil = decimal(precos.get('usd_foil')) or decimal(precos.get('usd_etched'))
+            eur      = decimal(precos.get('eur'))
+            eur_foil = decimal(precos.get('eur_foil'))
+
+            if not any([usd, usd_foil, eur, eur_foil]):
+                continue
+
+            lote.append(CardPrice(
+                scryfall_id=carta['id'], mtgjson_uuid='',
+                usd=usd, usd_foil=usd_foil, eur=eur, eur_foil=eur_foil,
+                price_date=time.strftime('%Y-%m-%d'),
+            ))
+
+            if len(lote) >= 1000:
+                self.gravar(lote)
+                gravados += len(lote)
+                lote = []
+                self.stdout.write(f'  {gravados} preços gravados ({lidos} cartas lidas)...')
+
+        self.gravar(lote)
+        gravados += len(lote)
+        self.stdout.write(self.style.SUCCESS(
+            f'Concluído: {gravados} impressões com preço (de {lidos} lidas). '
+            f'Total no banco: {CardPrice.objects.count()}.'))
+
+    def importar_do_mtgjson(self, *args, **options):
         if options['sets']:
             codigos = [c.strip().lower() for c in options['sets'].split(',') if c.strip()]
         else:
@@ -123,13 +198,27 @@ class Command(BaseCommand):
         mapa = {}
         ausentes = []
         for indice, codigo in enumerate(codigos, start=1):
-            try:
-                pedido = urllib.request.Request(f'{MTGJSON}/{codigo.upper()}.json', headers=HEADERS)
-                with urllib.request.urlopen(pedido, timeout=60) as resposta:
-                    dados = json.loads(resposta.read())
-            except Exception:
-                ausentes.append(codigo)
-                continue
+            # Guarda em disco: uma interrupção não joga fora o que já baixou
+            cache = CACHE_SETS / f'{codigo.upper()}.json'
+            dados = None
+            if cache.exists():
+                try:
+                    dados = json.loads(cache.read_bytes())
+                except Exception:
+                    dados = None
+
+            if dados is None:
+                try:
+                    pedido = urllib.request.Request(f'{MTGJSON}/{codigo.upper()}.json',
+                                                    headers=HEADERS)
+                    with urllib.request.urlopen(pedido, timeout=60) as resposta:
+                        bruto = resposta.read()
+                    cache.write_bytes(bruto)
+                    dados = json.loads(bruto)
+                except Exception:
+                    ausentes.append(codigo)
+                    continue
+                time.sleep(options['delay'])
 
             for carta in dados.get('data', {}).get('cards', []):
                 scryfall = (carta.get('identifiers') or {}).get('scryfallId')
@@ -138,7 +227,6 @@ class Command(BaseCommand):
 
             if indice % 10 == 0:
                 self.stdout.write(f'   {indice}/{len(codigos)} coleções, {len(mapa)} cartas mapeadas')
-            time.sleep(options['delay'])
 
         if ausentes:
             self.stdout.write(self.style.WARNING(
