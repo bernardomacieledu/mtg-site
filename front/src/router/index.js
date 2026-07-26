@@ -14,11 +14,14 @@ import LoginView              from '@/views/auth/LoginView.vue'
 const routes = [
   { path: '/',                    name: 'cards',              component: CardsView },
   { path: '/colecoes',            name: 'sets',               component: SetsView },
-  { path: '/colecao/montar',      name: 'collection-builder', component: CollectionBuilderView },
-  { path: '/colecao/importar',    name: 'collection-import',  component: CollectionsView },
+  { path: '/colecao/montar',      name: 'collection-builder', component: CollectionBuilderView,
+    meta: { requiresAuth: true } },
+  { path: '/colecao/importar',    name: 'collection-import',  component: CollectionsView,
+    meta: { requiresAuth: true } },
   { path: '/regras',              name: 'rules',              component: RulesView },
   { path: '/carta/:name',         name: 'card-detail',        component: CardDetailView },
-  { path: '/biblioteca',          name: 'library',            component: LibraryView },
+  { path: '/biblioteca',          name: 'library',            component: LibraryView,
+    meta: { requiresAuth: true } },
   { path: '/biblioteca/deck/:id', name: 'deck-detail',        component: DeckDetailView },
   { path: '/biblioteca/colecao',  name: 'collection-detail',  component: CollectionDetailView },
   { path: '/biblioteca/colecao/:id', name: 'collection-detail-id', component: CollectionDetailView },
@@ -29,8 +32,19 @@ const routes = [
   { path: '/:pathMatch(.*)*',     redirect: '/' },
 ]
 
-export default createRouter({
+const router = createRouter({
   history: createWebHistory(),
   routes,
   scrollBehavior: (to, from, saved) => saved || { top: 0, behavior: 'smooth' },
 })
+
+// Decks e coleções vivem no banco, vinculados ao usuário: sem conta, manda
+// para o login guardando o destino para voltar depois.
+router.beforeEach((to) => {
+  if (to.meta.requiresAuth && !localStorage.getItem('mtg_token')) {
+    return { name: 'login', query: { redirect: to.fullPath } }
+  }
+  return true
+})
+
+export default router

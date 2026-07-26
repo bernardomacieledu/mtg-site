@@ -11,8 +11,20 @@
 
         <div v-if="erro" class="modal-msg err">{{ erro }}</div>
 
+        <!-- Sem conta não há onde salvar: coleções ficam no banco -->
+        <div v-if="!auth.isLoggedIn" class="login-gate">
+          <p class="gate-texto">
+            Coleções ficam salvas na sua conta. Entre ou cadastre-se para começar.
+          </p>
+          <router-link
+            :to="{ name: 'login', query: { redirect: $route.fullPath } }"
+            class="btn-primary gate-btn"
+            @click="close"
+          >✦ Entrar / Cadastrar</router-link>
+        </div>
+
         <!-- Coleções existentes -->
-        <div v-if="store.list.length" class="modal-section">
+        <div v-if="auth.isLoggedIn && store.list.length" class="modal-section">
           <span class="section-label">Suas coleções</span>
           <button
             v-for="col in store.list"
@@ -30,12 +42,12 @@
           </button>
         </div>
 
-        <div v-else-if="!store.loading" class="modal-empty">
+        <div v-else-if="auth.isLoggedIn && !store.loading" class="modal-empty">
           Você ainda não tem coleções. Crie a primeira abaixo.
         </div>
 
         <!-- Nova coleção -->
-        <div class="modal-section">
+        <div v-if="auth.isLoggedIn" class="modal-section">
           <span class="section-label">Nova coleção</span>
           <div class="nova-linha">
             <input
@@ -51,9 +63,7 @@
           </div>
         </div>
 
-        <p v-if="!auth.isLoggedIn" class="modal-hint">
-          Você não está logado — as coleções ficam salvas apenas neste navegador.
-        </p>
+
       </div>
     </div>
   </Transition>
@@ -183,6 +193,10 @@ async function criarNova() {
   font-size: 0.68rem; color: var(--parchment-xdk); font-style: italic;
   border-top: 1px solid rgba(184,134,11,0.15); padding-top: 10px;
 }
+
+.login-gate { text-align: center; padding: 0.6rem 0 0.2rem; }
+.gate-texto { font-size: 0.78rem; color: var(--parchment-dk); line-height: 1.7; margin-bottom: 1rem; }
+.gate-btn { display: inline-block; text-decoration: none; }
 
 .modal-fade-enter-active, .modal-fade-leave-active { transition: opacity 0.2s; }
 .modal-fade-enter-from, .modal-fade-leave-to { opacity: 0; }

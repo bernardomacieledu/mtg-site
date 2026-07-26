@@ -7,7 +7,11 @@ import {
 import { useAuthStore } from '@/stores/auth'
 
 const DRAFT_KEY = 'mtg_collection_draft'
-const LOCAL_KEY = 'mtg_collections'
+
+// Coleções são sempre gravadas no banco, vinculadas ao usuário. O rascunho em
+// andamento segue no localStorage por conveniência (é um buffer de trabalho),
+// mas salvar exige conta.
+const ERRO_LOGIN = 'Entre na sua conta para salvar coleções.'
 
 const CATEGORY_OF = [
   ['Creature', 'creature'], ['Planeswalker', 'planeswalker'], ['Land', 'land'],
@@ -167,19 +171,11 @@ export const useCollectionsStore = defineStore('collections', () => {
   // ── Persistência ──────────────────────────────────────────────────────────
 
   async function loadList() {
+    if (!auth.isLoggedIn) { list.value = []; return }
     loading.value = true
     try {
-      if (auth.isLoggedIn) {
-        const { data } = await apiListCollections()
-        list.value = data
-      } else {
-        list.value = readLocal(LOCAL_KEY, []).map(({ cards, bySet, byRarity, byCategory, ...rest }) => ({
-          ...rest,
-          total_copies: rest.stats?.total_copies ?? 0,
-          total_unique: rest.stats?.total_unique ?? 0,
-          total_sets:   rest.stats?.total_sets ?? 0,
-        }))
-      }
+      const { data } = await apiListCollections()
+      list.value = data
     } catch {
       list.value = []
     } finally {
@@ -188,44 +184,26 @@ export const useCollectionsStore = defineStore('collections', () => {
   }
 
   async function getCollection(id) {
-    if (auth.isLoggedIn) {
-      try {
-        const { data } = await apiGetCollection(id)
-        return data
-      } catch { return null }
-    }
-    return readLocal(LOCAL_KEY, []).find(c => String(c.id) === String(id)) || null
+    if (!auth.isLoggedIn) return null
+    try {
+      const { data } = await apiGetCollection(id)
+      return data
+    } catch { return null }
   }
 
   /** Salva o rascunho atual como coleção (nova ou atualizando a existente). */
   async function saveDraft() {
+    if (!auth.isLoggedIn) return { error: ERRO_LOGIN, requiresAuth: true }
     if (isEmpty.value) return { error: 'A coleção está vazia.' }
     saving.value = true
     try {
       const payload = buildCollectionPayload(draft.value.name || 'Nova Coleção', draft.value.cards)
-
-      if (auth.isLoggedIn) {
-        const { data } = await apiSaveCollection({
-          id:          draft.value.id,
-          name:        payload.name,
-          cards:       payload.cards,
-          by_set:      payload.bySet,
-          by_rarity:   payload.byRarity,
-          by_category: payload.byCategory,
-          stats:       payload.stats,
-        })
-        draft.value.id = data.id
-      } else {
-        const all = readLocal(LOCAL_KEY, [])
-        const id  = draft.value.id || `local-${Date.now()}`
-        const record = { ...payload, id, updated_at: new Date().toISOString() }
-        const index = all.findIndex(c => String(c.id) === String(id))
-        if (index >= 0) all[index] = record
-        else all.push(record)
-        localStorage.setItem(LOCAL_KEY, JSON.stringify(all))
-        draft.value.id = id
-      }
-
+      const { data } = await apiSaveCollection({
+        id: draft.value.id, name: payload.name, cards: payload.cards,
+        by_set: payload.bySet, by_rarity: payload.byRarity,
+        by_category: payload.byCategory, stats: payload.stats,
+      })
+      draft.value.id = data.id
       persistDraft()
       await loadList()
       return { id: draft.value.id }
@@ -237,26 +215,18 @@ export const useCollectionsStore = defineStore('collections', () => {
   }
 
   async function removeCollection(id) {
-    if (auth.isLoggedIn) {
-      await apiDeleteCollection(id)
-    } else {
-      const all = readLocal(LOCAL_KEY, []).filter(c => String(c.id) !== String(id))
-      localStorage.setItem(LOCAL_KEY, JSON.stringify(all))
-    }
+    if (!auth.isLoggedIn) return { error: ERRO_LOGIN, requiresAuth: true }
+    await apiDeleteCollection(id)
     if (String(draft.value.id) === String(id)) delete draft.value.id
     await loadList()
+    return { ok: true }
   }
 
   async function rename(id, name) {
-    if (auth.isLoggedIn) {
-      await apiRenameCollection(id, name)
-    } else {
-      const all = readLocal(LOCAL_KEY, [])
-      const found = all.find(c => String(c.id) === String(id))
-      if (found) found.name = name
-      localStorage.setItem(LOCAL_KEY, JSON.stringify(all))
-    }
+    if (!auth.isLoggedIn) return { error: ERRO_LOGIN, requiresAuth: true }
+    await apiRenameCollection(id, name)
     await loadList()
+    return { ok: true }
   }
 
   /** Abre o modal de escolha de coleção para esta carta. */
@@ -278,8 +248,9 @@ export const useCollectionsStore = defineStore('collections', () => {
     }
   }
 
-  /** Adiciona a carta a uma coleção já existente e salva. */
+  /** Adiciona a carta a uma coleção existente e grava no banco. */
   async function addCardToCollection(id, card) {
+    if (!auth.isLoggedIn) return { error: ERRO_LOGIN, requiresAuth: true }
     try {
       const dados = await getCollection(id)
       if (!dados) return { error: 'Coleção não encontrada.' }
@@ -290,21 +261,10 @@ export const useCollectionsStore = defineStore('collections', () => {
       else cartas.push(_normaliza(card, card.sets?.[0]))
 
       const payload = buildCollectionPayload(dados.name, cartas)
-
-      if (auth.isLoggedIn) {
-        await apiSaveCollection({
-          id, name: payload.name, cards: payload.cards, by_set: payload.bySet,
-          by_rarity: payload.byRarity, by_category: payload.byCategory, stats: payload.stats,
-        })
-      } else {
-        const todas = readLocal(LOCAL_KEY, [])
-        const indice = todas.findIndex(c => String(c.id) === String(id))
-        const registro = { ...payload, id, updated_at: new Date().toISOString() }
-        if (indice >= 0) todas[indice] = registro
-        else todas.push(registro)
-        localStorage.setItem(LOCAL_KEY, JSON.stringify(todas))
-      }
-
+      await apiSaveCollection({
+        id, name: payload.name, cards: payload.cards, by_set: payload.bySet,
+        by_rarity: payload.byRarity, by_category: payload.byCategory, stats: payload.stats,
+      })
       await loadList()
       return { id }
     } catch (error) {
@@ -314,18 +274,13 @@ export const useCollectionsStore = defineStore('collections', () => {
 
   /** Cria uma coleção nova já com a carta dentro. */
   async function createCollectionWithCard(nome, card) {
+    if (!auth.isLoggedIn) return { error: ERRO_LOGIN, requiresAuth: true }
     const payload = buildCollectionPayload(nome, [_normaliza(card, card.sets?.[0])])
     try {
-      if (auth.isLoggedIn) {
-        await apiSaveCollection({
-          name: payload.name, cards: payload.cards, by_set: payload.bySet,
-          by_rarity: payload.byRarity, by_category: payload.byCategory, stats: payload.stats,
-        })
-      } else {
-        const todas = readLocal(LOCAL_KEY, [])
-        todas.push({ ...payload, id: `local-${Date.now()}`, updated_at: new Date().toISOString() })
-        localStorage.setItem(LOCAL_KEY, JSON.stringify(todas))
-      }
+      await apiSaveCollection({
+        name: payload.name, cards: payload.cards, by_set: payload.bySet,
+        by_rarity: payload.byRarity, by_category: payload.byCategory, stats: payload.stats,
+      })
       await loadList()
       return { ok: true }
     } catch (error) {

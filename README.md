@@ -19,6 +19,10 @@ docker compose up --build
 | Site     | http://localhost:8080   |
 | API      | http://localhost:8000/api/ |
 | MySQL    | localhost:3307          |
+| Adminer  | http://localhost:8081   |
+
+No Adminer, entre com **Servidor** `db`, usuário e senha iguais aos do `.env`
+(`DB_USER` / `DB_PASSWORD`) e base `mtg_db`.
 
 No primeiro boot o container da API aguarda o MySQL, aplica as migrations e
 importa as 8 coleções mais recentes do Scryfall (alguns minutos). Para pular a
@@ -118,5 +122,6 @@ As tabelas `cards` e `rules` são `managed = False` no Django — o schema vive 
 **Novidades**
 - Página **Coleções** com próximos lançamentos e lançamentos recentes em destaque, busca e filtro por ano.
 - Montagem de coleções carta a carta: botões `+`/`−` no grimório, dock flutuante de progresso e a tela `/colecao/montar`.
+- Criar decks e coleções **exige conta**: os dados ficam no banco, vinculados ao usuário.
 - Suporte a **múltiplas coleções por usuário** (antes havia só uma), com renomear, editar e excluir.
 - Docker Compose completo com seed automático do banco.

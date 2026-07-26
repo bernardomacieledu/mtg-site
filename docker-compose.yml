@@ -52,6 +52,19 @@ services:
     ports:
       - "${API_PORT:-8000}:8000"
 
+  adminer:
+    image: adminer:latest
+    container_name: mtg-adminer
+    restart: unless-stopped
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+      ADMINER_DESIGN: ${ADMINER_DESIGN:-dracula}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${ADMINER_PORT:-8081}:8080"
+
   front:
     build:
       context: ./front

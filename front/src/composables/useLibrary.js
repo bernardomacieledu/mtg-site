@@ -1,164 +1,171 @@
 /**
  * useLibrary.js
- * Gerencia decks e coleções sincronizando com o backend quando logado,
- * ou usando localStorage quando não logado.
+ *
+ * Decks e coleções exigem conta: tudo é gravado no banco, vinculado ao usuário.
+ * As funções devolvem { error, requiresAuth } quando não há sessão, para a tela
+ * poder oferecer o login em vez de falhar em silêncio.
+ *
+ * `migrateLocalToBackend` existe para quem já tinha dados salvos apenas no
+ * navegador antes desta mudança: ao entrar na conta, sobe o que havia e limpa.
  */
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import api from '@/composables/api'
 import { useAuthStore } from '@/stores/auth'
 
-// Singleton state
+const ERRO_LOGIN = 'Entre na sua conta para salvar decks e coleções.'
+const SEM_SESSAO = { error: ERRO_LOGIN, requiresAuth: true }
+
+const COLECAO_VAZIA = {
+  cards: [], bySet: [], byRarity: {}, byCategory: {},
+  stats: null, name: 'Minha Coleção',
+}
+
+// Estado compartilhado entre as telas
 const decks      = ref([])
-const collection = ref(JSON.parse(localStorage.getItem('mtg_collection') ||
-  '{"cards":[],"bySet":[],"byRarity":{},"byCategory":{},"stats":null,"name":"Minha Coleção"}'))
-const activeImgs = ref(JSON.parse(localStorage.getItem('mtg_active_imgs') || '{}'))
+const collection = ref({ ...COLECAO_VAZIA })
+const activeImgs = ref({})
 const loading    = ref(false)
 
 export function useLibrary() {
   const auth = useAuthStore()
 
-  // ── DECKS ───────────────────────────────────────────────────────────────
+  // ── Decks ───────────────────────────────────────────────────────────────
 
   async function loadDecks() {
-    if (auth.isLoggedIn) {
-      try {
-        const { data } = await api.get('/auth/decks/')
-        decks.value = data
-      } catch { decks.value = [] }
-    } else {
-      decks.value = JSON.parse(localStorage.getItem('mtg_decks') || '[]')
+    if (!auth.isLoggedIn) { decks.value = []; return SEM_SESSAO }
+    loading.value = true
+    try {
+      const { data } = await api.get('/auth/decks/')
+      decks.value = data
+    } catch {
+      decks.value = []
+    } finally {
+      loading.value = false
     }
   }
 
   async function getDeck(id) {
-    if (auth.isLoggedIn) {
+    if (!auth.isLoggedIn) return null
+    try {
       const { data } = await api.get(`/auth/decks/${id}/`)
       return data
-    } else {
-      const all = JSON.parse(localStorage.getItem('mtg_decks') || '[]')
-      return all.find(d => d.id === id) || null
+    } catch {
+      return null
     }
   }
 
   async function saveDeck(deck) {
-    if (auth.isLoggedIn) {
-      const { data } = await api.post('/auth/decks/save/', {
-        id:           deck.id || undefined,
-        name:         deck.name,
-        raw_text:     deck.raw_text,
-        cards:        deck.cards,
-        categorized:  deck.categorized,
-        commander:    deck.commander,
-        legendaries:  deck.legendaries,
-        colors:       deck.colors,
-        total_cards:  deck.total_cards,
-        avg_cmc:      deck.avg_cmc,
-        not_found:    deck.not_found,
-        active_imgs:  activeImgs.value,
-      })
-      // Reload list
-      await loadDecks()
-      return data.id
-    } else {
-      const all = JSON.parse(localStorage.getItem('mtg_decks') || '[]')
-      if (deck.id) {
-        const idx = all.findIndex(d => d.id === deck.id)
-        if (idx >= 0) all[idx] = deck
-      } else {
-        deck.id = Date.now().toString()
-        all.push(deck)
-      }
-      localStorage.setItem('mtg_decks', JSON.stringify(all))
-      decks.value = all
-      return deck.id
-    }
+    if (!auth.isLoggedIn) return SEM_SESSAO
+    const { data } = await api.post('/auth/decks/save/', {
+      id:          deck.id || undefined,
+      name:        deck.name,
+      raw_text:    deck.raw_text,
+      cards:       deck.cards,
+      categorized: deck.categorized,
+      commander:   deck.commander,
+      legendaries: deck.legendaries,
+      colors:      deck.colors,
+      total_cards: deck.total_cards,
+      avg_cmc:     deck.avg_cmc,
+      not_found:   deck.not_found,
+      active_imgs: activeImgs.value,
+    })
+    await loadDecks()
+    return data.id
   }
 
   async function deleteDeck(id) {
-    if (auth.isLoggedIn) {
-      await api.delete(`/auth/decks/${id}/delete/`)
-    } else {
-      const all = JSON.parse(localStorage.getItem('mtg_decks') || '[]')
-      localStorage.setItem('mtg_decks', JSON.stringify(all.filter(d => d.id !== String(id))))
-    }
+    if (!auth.isLoggedIn) return SEM_SESSAO
+    await api.delete(`/auth/decks/${id}/delete/`)
     await loadDecks()
   }
 
-  // ── COLLECTION ──────────────────────────────────────────────────────────
+  // ── Coleção (endpoint de compatibilidade, coleção única) ────────────────
 
   async function loadCollection() {
-    if (auth.isLoggedIn) {
-      try {
-        const { data } = await api.get('/auth/collection/')
-        if (data.exists) {
-          collection.value = data
-          activeImgs.value = data.active_imgs || {}
-        }
-      } catch {}
-    } else {
-      collection.value = JSON.parse(localStorage.getItem('mtg_collection') ||
-        '{"cards":[],"bySet":[],"byRarity":{},"byCategory":{},"stats":null,"name":"Minha Coleção"}')
-      activeImgs.value = JSON.parse(localStorage.getItem('mtg_active_imgs') || '{}')
-    }
+    if (!auth.isLoggedIn) { collection.value = { ...COLECAO_VAZIA }; return SEM_SESSAO }
+    try {
+      const { data } = await api.get('/auth/collection/')
+      if (data.exists) {
+        collection.value = data
+        activeImgs.value = data.active_imgs || {}
+      }
+    } catch { /* mantém o estado atual */ }
   }
 
   async function saveCollection(colData) {
+    if (!auth.isLoggedIn) return SEM_SESSAO
     collection.value = colData
-    if (auth.isLoggedIn) {
-      await api.post('/auth/collection/save/', {
-        name:        colData.name,
-        cards:       colData.cards,
-        by_set:      colData.bySet || colData.by_set,
-        by_rarity:   colData.byRarity || colData.by_rarity,
-        by_category: colData.byCategory || colData.by_category,
-        stats:       colData.stats,
-        active_imgs: activeImgs.value,
-      })
-    } else {
-      localStorage.setItem('mtg_collection', JSON.stringify(colData))
-    }
+    await api.post('/auth/collection/save/', {
+      name:        colData.name,
+      cards:       colData.cards,
+      by_set:      colData.bySet || colData.by_set,
+      by_rarity:   colData.byRarity || colData.by_rarity,
+      by_category: colData.byCategory || colData.by_category,
+      stats:       colData.stats,
+      active_imgs: activeImgs.value,
+    })
   }
 
-  // ── ACTIVE IMAGES ───────────────────────────────────────────────────────
+  // ── Imagem ativa de cada carta ──────────────────────────────────────────
 
   async function changeImg(name, url, deckId = null) {
     activeImgs.value = { ...activeImgs.value, [name]: url }
+    if (!auth.isLoggedIn) return SEM_SESSAO
 
-    if (auth.isLoggedIn) {
-      if (deckId) {
-        await api.patch(`/auth/decks/${deckId}/imgs/`, { active_imgs: { [name]: url } })
-      } else {
-        await api.patch('/auth/collection/imgs/', { active_imgs: { [name]: url } })
-      }
+    if (deckId) {
+      await api.patch(`/auth/decks/${deckId}/imgs/`, { active_imgs: { [name]: url } })
     } else {
-      const saved = JSON.parse(localStorage.getItem('mtg_active_imgs') || '{}')
-      saved[name] = url
-      localStorage.setItem('mtg_active_imgs', JSON.stringify(saved))
+      await api.patch('/auth/collection/imgs/', { active_imgs: { [name]: url } })
     }
   }
 
-  // ── MIGRATION: localStorage → backend ao fazer login ───────────────────
+  // ── Migração dos dados que ficaram só no navegador ──────────────────────
 
   async function migrateLocalToBackend() {
-    if (!auth.isLoggedIn) return
+    if (!auth.isLoggedIn) return { migrados: 0 }
 
-    // Migrate decks
-    const localDecks = JSON.parse(localStorage.getItem('mtg_decks') || '[]')
-    for (const deck of localDecks) {
-      await saveDeck({ ...deck, id: undefined }) // save sem id para criar novo
+    let migrados = 0
+
+    const lerLocal = (chave, padrao) => {
+      try { return JSON.parse(localStorage.getItem(chave)) ?? padrao }
+      catch { return padrao }
     }
 
-    // Migrate collection
-    const localCol = JSON.parse(localStorage.getItem('mtg_collection') ||
-      '{"cards":[],"stats":null}')
-    if (localCol.cards?.length) {
-      await saveCollection(localCol)
+    for (const deck of lerLocal('mtg_decks', [])) {
+      try {
+        await saveDeck({ ...deck, id: undefined })   // sem id: cria novo
+        migrados += 1
+      } catch { /* segue com os demais */ }
     }
 
-    // Clear localStorage after migration
+    // Coleções que ficaram no navegador (formato antigo e o multi-coleção)
+    const antiga = lerLocal('mtg_collection', null)
+    if (antiga?.cards?.length) {
+      try { await saveCollection(antiga); migrados += 1 } catch { /* ignora */ }
+    }
+
+    for (const col of lerLocal('mtg_collections', [])) {
+      if (!col?.cards?.length) continue
+      try {
+        await api.post('/auth/collections/save/', {
+          name:        col.name || 'Coleção importada',
+          cards:       col.cards,
+          by_set:      col.bySet || col.by_set,
+          by_rarity:   col.byRarity || col.by_rarity,
+          by_category: col.byCategory || col.by_category,
+          stats:       col.stats,
+        })
+        migrados += 1
+      } catch { /* ignora */ }
+    }
+
     localStorage.removeItem('mtg_decks')
     localStorage.removeItem('mtg_collection')
+    localStorage.removeItem('mtg_collections')
     localStorage.removeItem('mtg_active_imgs')
+
+    return { migrados }
   }
 
   return {

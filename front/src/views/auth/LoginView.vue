@@ -94,7 +94,7 @@ async function submit() {
       // Migrar dados locais para o backend
       await library.migrateLocalToBackend()
     }
-    router.push({ name: 'library' })
+    router.push(route.query.redirect || { name: 'library' })
   } catch (e) {
     error.value = e.response?.data?.error || 'Erro ao autenticar.'
   } finally {
