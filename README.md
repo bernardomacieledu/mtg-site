@@ -20,6 +20,7 @@ docker compose up --build
 | API      | http://localhost:8000/api/ |
 | MySQL    | localhost:3307          |
 | Adminer  | http://localhost:8081   |
+| Admin    | http://localhost:8000/admin/ |
 
 No Adminer, entre com **Servidor** `db`, usuário e senha iguais aos do `.env`
 (`DB_USER` / `DB_PASSWORD`) e base `mtg_db`.

@@ -107,3 +107,68 @@ class CardPrice(models.Model):
 
     def __str__(self):
         return f'{self.scryfall_id}: US$ {self.usd}'
+
+
+class ScheduledTask(models.Model):
+    """
+    Atualização periódica de cartas e preços.
+
+    O agendamento vive no banco (e não num crontab) para o administrador poder
+    mudar o intervalo, consultar quando é a próxima execução e forçar uma
+    rodada pela interface, sem mexer no container.
+    """
+
+    TAREFAS = [
+        ('seed_prices',  'Preços das cartas'),
+        ('seed_cards',   'Cartas de coleções recentes'),
+        ('seed_sets',    'Catálogo de coleções'),
+        ('seed_symbols', 'Símbolos de mana'),
+    ]
+    STATUS = [
+        ('idle',    'Aguardando'),
+        ('running', 'Executando'),
+        ('ok',      'Concluída'),
+        ('error',   'Falhou'),
+    ]
+
+    key            = models.CharField(max_length=40, choices=TAREFAS, unique=True)
+    enabled        = models.BooleanField('ativa', default=True)
+    interval_hours = models.PositiveIntegerField('intervalo (horas)', default=24)
+    options        = models.CharField(
+        'argumentos', max_length=255, blank=True, default='',
+        help_text='Argumentos do comando, ex: --recent 5')
+    last_run       = models.DateTimeField('última execução', null=True, blank=True)
+    next_run       = models.DateTimeField('próxima execução', null=True, blank=True)
+    status         = models.CharField(max_length=10, choices=STATUS, default='idle')
+    last_message   = models.TextField('resultado', blank=True, default='')
+    force_now      = models.BooleanField(
+        'executar agora', default=False,
+        help_text='Marque para rodar na próxima verificação do agendador.')
+    updated_at     = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'mtg_scheduled_tasks'
+        ordering = ['key']
+        verbose_name = 'tarefa agendada'
+        verbose_name_plural = 'tarefas agendadas'
+
+    def __str__(self):
+        return self.get_key_display()
+
+    @property
+    def args(self):
+        return [pedaco for pedaco in self.options.split() if pedaco]
+
+    def agendar_proxima(self, referencia=None):
+        from datetime import timedelta
+        from django.utils import timezone
+        base = referencia or timezone.now()
+        self.next_run = base + timedelta(hours=max(1, self.interval_hours))
+
+    def esta_vencida(self):
+        from django.utils import timezone
+        if self.force_now:
+            return True
+        if not self.enabled:
+            return False
+        return self.next_run is None or self.next_run <= timezone.now()

@@ -52,6 +52,29 @@ services:
     ports:
       - "${API_PORT:-8000}:8000"
 
+  worker:
+    build:
+      context: ./api
+    container_name: mtg-worker
+    restart: unless-stopped
+    command: ["python", "manage.py", "run_scheduler", "--interval", "${SCHEDULER_INTERVAL:-60}"]
+    environment:
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-1}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-dev-secret-change-me}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-me}
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME:-mtg_db}
+      DB_USER: ${DB_USER:-mtg_ingest}
+      DB_PASSWORD: ${DB_PASSWORD:-mtgpass}
+      SEED_ON_START: 0
+      SEED_PRICES: 0
+    volumes:
+      - scryfall_cache:/app/cache
+    depends_on:
+      db:
+        condition: service_healthy
+
   adminer:
     image: adminer:latest
     container_name: mtg-adminer

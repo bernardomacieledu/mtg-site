@@ -16,6 +16,11 @@ fi
 echo "==> [3/5] Aplicando migrations..."
 python manage.py migrate --noinput
 
+if [ -n "${ADMIN_PASSWORD}" ]; then
+  echo "==> Garantindo o superusuario..."
+  python manage.py create_admin || echo "    !! Nao foi possivel criar o superusuario."
+fi
+
 echo "==> [4/5] Catalogo de colecoes (nomes completos e icones)..."
 SETS=$(python manage.py set_count 2>/dev/null || echo 0)
 if [ "$SETS" = "0" ]; then

@@ -24,6 +24,8 @@ ALLOWED_HOSTS = env_list('DJANGO_ALLOWED_HOSTS', '*')
 INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'django.contrib.auth',
+    'django.contrib.admin',
+    'django.contrib.messages',
     'django.contrib.sessions',
     'django.contrib.staticfiles',
     'rest_framework',
@@ -39,6 +41,7 @@ MIDDLEWARE = [
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'django.contrib.messages.middleware.MessageMiddleware',
 ]
 
 ROOT_URLCONF = 'core.urls'
@@ -50,6 +53,7 @@ TEMPLATES = [{
     'OPTIONS': {'context_processors': [
         'django.template.context_processors.request',
         'django.contrib.auth.context_processors.auth',
+        'django.contrib.messages.context_processors.messages',
     ]},
 }]
 
