@@ -6,6 +6,7 @@ export const useAuthStore = defineStore('auth', () => {
   const token    = ref(localStorage.getItem('mtg_token') || '')
   const username = ref(localStorage.getItem('mtg_username') || '')
   const uid      = ref(localStorage.getItem('mtg_uid') || '')
+  const isAdmin  = ref(localStorage.getItem('mtg_is_admin') === '1')
 
   const isLoggedIn = computed(() => !!token.value)
 
@@ -16,6 +17,8 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.setItem('mtg_token',    data.token)
     localStorage.setItem('mtg_username', data.username)
     localStorage.setItem('mtg_uid',      String(data.uid))
+    isAdmin.value = !!data.is_admin
+    localStorage.setItem('mtg_is_admin', data.is_admin ? '1' : '0')
   }
 
   function clearAuth() {
@@ -25,6 +28,8 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem('mtg_token')
     localStorage.removeItem('mtg_username')
     localStorage.removeItem('mtg_uid')
+    isAdmin.value = false
+    localStorage.removeItem('mtg_is_admin')
   }
 
   // O token é injetado pelo interceptor de @/composables/api a cada request,
@@ -33,6 +38,7 @@ export const useAuthStore = defineStore('auth', () => {
     token.value    = localStorage.getItem('mtg_token') || ''
     username.value = localStorage.getItem('mtg_username') || ''
     uid.value      = localStorage.getItem('mtg_uid') || ''
+    isAdmin.value  = localStorage.getItem('mtg_is_admin') === '1'
     window.addEventListener('mtg:unauthorized', clearAuth)
   }
 
@@ -56,5 +62,5 @@ export const useAuthStore = defineStore('auth', () => {
     clearAuth()
   }
 
-  return { token, username, uid, isLoggedIn, setAuth, clearAuth, initAuth, register, login, logout }
+  return { token, username, uid, isAdmin, isLoggedIn, setAuth, clearAuth, initAuth, register, login, logout }
 })

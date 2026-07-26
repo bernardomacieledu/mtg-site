@@ -66,3 +66,9 @@ export const apiGetCollection   = (id)      => api.get(`/auth/collections/${id}/
 export const apiSaveCollection  = (body)    => api.post('/auth/collections/save/', body)
 export const apiDeleteCollection = (id)     => api.delete(`/auth/collections/${id}/delete/`)
 export const apiRenameCollection = (id, name) => api.patch(`/auth/collections/${id}/rename/`, { name })
+
+// ── Administração ───────────────────────────────────────────────────────────
+export const adminStatus     = ()            => api.get('/admin/status/')
+export const adminTasks      = ()            => api.get('/admin/tasks/')
+export const adminUpdateTask = (id, dados)   => api.patch(`/admin/tasks/${id}/`, dados)
+export const adminRunTask    = (id)          => api.post(`/admin/tasks/${id}/run/`)

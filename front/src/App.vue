@@ -26,6 +26,11 @@
               🏛 Regras
             </router-link>
           </li>
+          <li v-if="auth.isAdmin">
+            <router-link to="/administracao" :class="{ active: $route.name === 'admin' }">
+              ⚙ Admin
+            </router-link>
+          </li>
           <li>
             <router-link to="/biblioteca"
               :class="{ active: ['library','deck-detail','collection-detail'].includes($route.name) }">
@@ -48,6 +53,7 @@
           <router-link to="/"           @click="mobileOpen=false">⚔ Cartas</router-link>
           <router-link to="/colecoes"   @click="mobileOpen=false">❖ Coleções</router-link>
           <router-link to="/regras"     @click="mobileOpen=false">🏛 Regras</router-link>
+          <router-link v-if="auth.isAdmin" to="/administracao" @click="mobileOpen=false">⚙ Admin</router-link>
           <router-link to="/biblioteca" @click="mobileOpen=false">📚 Biblioteca</router-link>
           <router-link v-if="!auth.isLoggedIn" to="/login" @click="mobileOpen=false">⚔ Entrar</router-link>
           <button v-else class="mobile-logout" @click="auth.logout(); mobileOpen=false">🚪 Sair ({{ auth.username }})</button>

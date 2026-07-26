@@ -38,6 +38,24 @@ def decode_token(token):
         return None
 
 
+def admin_required(f):
+    """
+    Exige token válido E privilégio de administrador.
+
+    Envolve o jwt_required para não duplicar a validação do token; devolve 403
+    (e não 404) quando o usuário está autenticado mas não é administrador, para
+    a interface poder distinguir "não logado" de "sem permissão".
+    """
+    @wraps(f)
+    @jwt_required
+    def wrapper(request, *args, **kwargs):
+        usuario = request.user_obj
+        if not (usuario.is_staff or usuario.is_superuser):
+            return Response({'error': 'Acesso restrito a administradores.'}, status=403)
+        return f(request, *args, **kwargs)
+    return wrapper
+
+
 def jwt_required(f):
     """Decorator: extrai e valida o JWT do header Authorization."""
     @wraps(f)
@@ -85,6 +103,7 @@ def register(request):
         'token':    token,
         'username': user.username,
         'uid':      user.id,
+        'is_admin': user.is_staff or user.is_superuser,
     }, status=201)
 
 
@@ -110,6 +129,7 @@ def login(request):
         'token':    token,
         'username': user.username,
         'uid':      user.id,
+        'is_admin': user.is_staff or user.is_superuser,
     })
 
 
@@ -122,6 +142,7 @@ def me(request):
         'uid':      user.id,
         'username': user.username,
         'email':    user.email,
+        'is_admin':          user.is_staff or user.is_superuser,
         'decks_count':       user.decks.count(),
         'collections_count': user.collections.count(),
     })

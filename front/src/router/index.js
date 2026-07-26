@@ -9,6 +9,7 @@ import DeckDetailView         from '@/views/DeckDetailView.vue'
 import CollectionDetailView   from '@/views/CollectionDetailView.vue'
 import CollectionBuilderView  from '@/views/CollectionBuilderView.vue'
 import CollectionsView        from '@/views/CollectionsView.vue'
+import AdminView              from '@/views/AdminView.vue'
 import LoginView              from '@/views/auth/LoginView.vue'
 
 const routes = [
@@ -26,6 +27,8 @@ const routes = [
   { path: '/biblioteca/colecao',  name: 'collection-detail',  component: CollectionDetailView },
   { path: '/biblioteca/colecao/:id', name: 'collection-detail-id', component: CollectionDetailView },
   { path: '/login',               name: 'login',              component: LoginView },
+  { path: '/administracao',       name: 'admin',              component: AdminView,
+    meta: { requiresAuth: true, requiresAdmin: true } },
 
   // rotas antigas
   { path: '/colecao',             redirect: '/colecao/montar' },
@@ -43,6 +46,10 @@ const router = createRouter({
 router.beforeEach((to) => {
   if (to.meta.requiresAuth && !localStorage.getItem('mtg_token')) {
     return { name: 'login', query: { redirect: to.fullPath } }
+  }
+  // O servidor também valida: aqui é só para não exibir a tela em vão
+  if (to.meta.requiresAdmin && localStorage.getItem('mtg_is_admin') !== '1') {
+    return { name: 'cards' }
   }
   return true
 })
