@@ -85,20 +85,45 @@ async function submit() {
     error.value = 'As senhas não coincidem.'
     return
   }
+
+  // Etapa 1 — autenticação. Só o que acontece AQUI pode virar erro de login.
+  // Antes, um único try cobria login, migração de dados e navegação: qualquer
+  // falha depois do 200 aparecia como "Erro ao autenticar" com o usuário já
+  // autenticado.
   loading.value = true
+  let autenticado = false
   try {
     if (mode.value === 'login') {
       await auth.login(form.username, form.password)
     } else {
       await auth.register(form.username, form.email, form.password)
-      // Migrar dados locais para o backend
-      await library.migrateLocalToBackend()
     }
-    router.push(route.query.redirect || { name: 'library' })
+    autenticado = true
   } catch (e) {
-    error.value = e.response?.data?.error || 'Erro ao autenticar.'
+    const doServidor = e.response?.data?.error
+    error.value = doServidor || (mode.value === 'login'
+      ? 'Não foi possível entrar. Confira usuário e senha.'
+      : 'Não foi possível criar a conta.')
   } finally {
     loading.value = false
+  }
+
+  if (!autenticado) return
+
+  // Etapa 2 — sobe o que estava salvo só neste navegador. Se falhar, não
+  // invalida o login: o usuário está dentro e os dados seguem no navegador.
+  try {
+    await library.migrateLocalToBackend()
+  } catch (e) {
+    console.warn('Não foi possível migrar os dados locais:', e)
+  }
+
+  // Etapa 3 — navegação. Uma falha aqui também não é erro de autenticação.
+  try {
+    await router.push(route.query.redirect || { name: 'library' })
+  } catch (e) {
+    console.warn('Falha ao navegar após o login:', e)
+    router.push({ name: 'cards' })
   }
 }
 
