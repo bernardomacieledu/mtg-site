@@ -151,9 +151,20 @@
       <button class="btn-ghost" style="margin-top:2rem" @click="$router.back()">◂ Voltar</button>
     </div>
   </div>
+
+      <div class="preco-externo">
+        <a
+          :href="ligaMagicUrl(card.name)"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="btn-ghost liga-btn"
+        >💰 Ver preço na Liga Magic (R$)</a>
+        <span class="preco-nota">Abre a busca da carta no site da Liga Magic</span>
+      </div>
 </template>
 
 <script setup>
+import { ligaMagicUrl } from '@/composables/useLigaMagic'
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { getCardImages, getCardPrices } from '@/composables/api'
@@ -207,6 +218,10 @@ watch(cardName, load)
 </script>
 
 <style scoped>
+.preco-externo { margin: 1.4rem 0; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.liga-btn { display: inline-block; text-decoration: none; }
+.preco-nota { font-size: 0.64rem; color: var(--parchment-xdk); font-style: italic; }
+
 .back-bar { max-width:1400px; margin:0 auto; padding:1.5rem 1.5rem 0; }
 
 .detail-wrap {

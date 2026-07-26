@@ -8,25 +8,40 @@ from .models import Card, Rule
 from .scryfall import get_set_names, get_mana_map
 
 
-KEYWORD_PATTERNS = {
-    'flying':        '[[:<:]]Flying[[:>:]]',
-    'first strike':  '[[:<:]]First strike[[:>:]]',
-    'double strike': '[[:<:]]Double strike[[:>:]]',
-    'deathtouch':    '[[:<:]]Deathtouch[[:>:]]',
-    'lifelink':      '[[:<:]]Lifelink[[:>:]]',
-    'trample':       '[[:<:]]Trample[[:>:]]',
-    'haste':         '[[:<:]]Haste[[:>:]]',
-    'vigilance':     '[[:<:]]Vigilance[[:>:]]',
-    'reach':         '[[:<:]]Reach[[:>:]]',
-    'menace':        '[[:<:]]Menace[[:>:]]',
-    'hexproof':      '[[:<:]]Hexproof[[:>:]]',
-    'shroud':        '[[:<:]]Shroud[[:>:]]',
-    'indestructible':'[[:<:]]Indestructible[[:>:]]',
-    'defender':      '[[:<:]]Defender[[:>:]]',
-    'flash':         '[[:<:]]Flash[[:>:]]',
-    'ward':          '[[:<:]]Ward[[:>:]]',
-    'prowess':       '[[:<:]]Prowess[[:>:]]',
+# Habilidades reconhecidas no filtro -> termo procurado no texto da carta.
+#
+# Nada de REGEXP aqui: o MySQL 8 trocou o motor de expressões regulares para
+# ICU e deixou de aceitar [[:<:]]/[[:>:]], que o MariaDB ainda aceita. Em vez de
+# depender da engine, a busca normaliza a pontuação e procura o termo cercado
+# de espaços — comportamento idêntico nos dois bancos.
+KEYWORDS = {
+    'flying':         'flying',
+    'first strike':   'first strike',
+    'double strike':  'double strike',
+    'deathtouch':     'deathtouch',
+    'lifelink':       'lifelink',
+    'trample':        'trample',
+    'haste':          'haste',
+    'vigilance':      'vigilance',
+    'reach':          'reach',
+    'menace':         'menace',
+    'hexproof':       'hexproof',
+    'shroud':         'shroud',
+    'indestructible': 'indestructible',
+    'defender':       'defender',
+    'flash':          'flash',
+    'ward':           'ward',
+    'prowess':        'prowess',
 }
+
+# Troca quebras de linha e pontuação por espaço e cerca o texto de espaços,
+# para "Flying" casar em "Flying, vigilance" e "Reach, deathtouch." sem casar
+# com palavras que apenas contenham o termo.
+TEXTO_NORMALIZADO = (
+    "CONCAT(' ', REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE("
+    "COALESCE(oracle_text,''), '\\n', ' '), ',', ' '), '.', ' '), ';', ' '), "
+    "':', ' '), '—', ' '), ' ')"
+)
 
 
 def _safe_int(value, default, minimum=None, maximum=None):
@@ -123,10 +138,10 @@ def _build_where(search='', set_code='', rarity='', card_type='', cmc='', cmc_op
         juncao_kw = ' OR ' if opcoes.get('keyword_mode', 'and').lower() == 'or' else ' AND '
         partes = []
         for palavra in palavras[:8]:
-            padrao = KEYWORD_PATTERNS.get(palavra)
-            if padrao:
-                partes.append('oracle_text REGEXP %s')
-                params.append(padrao)
+            termo = KEYWORDS.get(palavra)
+            if termo:
+                partes.append(f'{TEXTO_NORMALIZADO} LIKE %s')
+                params.append(f'% {termo} %')
         if partes:
             where.append('(' + juncao_kw.join(partes) + ')')
 
