@@ -25,3 +25,9 @@ dist/
 .idea/
 .vscode/
 *.patch
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+!.env.example
