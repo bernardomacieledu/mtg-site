@@ -196,6 +196,11 @@ class Command(BaseCommand):
                             help='Importa TODAS as coleções (demorado; use --bulk se possível).')
         parser.add_argument('--since', type=str, default='',
                             help='Só coleções lançadas a partir deste ano (ex: 2015).')
+        parser.add_argument('--days', type=int, default=0,
+                            help='Coleções ainda não lançadas (spoilers) MAIS as lançadas '
+                                 'nos últimos N dias. É a opção indicada para atualização '
+                                 'periódica: pega toda coleção que ainda recebe cartas, '
+                                 'sem depender de posição no ranking nem de ano fixo.')
         parser.add_argument('--skip-existing', action='store_true',
                             help='Pula coleções que já têm cartas no banco (permite retomar).')
         parser.add_argument('--released-only', action='store_true',
@@ -263,7 +268,20 @@ class Command(BaseCommand):
 
             sets.sort(key=lambda s: s['released_at'], reverse=True)
 
-            if options['all'] or options['since']:
+            if options['days']:
+                # Coleções que ainda podem ganhar cartas: as não lançadas
+                # (spoilers pingam diariamente) e as lançadas há pouco.
+                # Diferente de --recent N, não corta por posição: em temporada
+                # de spoilers é comum haver 5+ coleções abertas ao mesmo tempo,
+                # e a 4ª ficaria de fora para sempre com --recent 3.
+                from datetime import date, timedelta
+                limite = (date.today() - timedelta(days=options['days'])).isoformat()
+                selected = [s for s in sets if s['released_at'] >= limite]
+                self.stdout.write(
+                    f'Janela de {options["days"]} dias (desde {limite}), '
+                    'incluindo coleções ainda não lançadas.'
+                )
+            elif options['all'] or options['since']:
                 selected = sets
             else:
                 selected = sets[:options['recent'] or 8]

@@ -22,11 +22,21 @@ from mtg_api.models import ScheduledTask
 PADRAO = [
     # O MTGJSON/Scryfall publicam preços uma vez ao dia
     {'key': 'seed_prices',  'interval_hours': 24, 'options': ''},
-    # Cartas novas só saem em lançamento, mas spoilers pingam na semana anterior
-    {'key': 'seed_cards',   'interval_hours': 24, 'options': '--recent 3'},
+    # Coleções ainda não lançadas (spoilers diários) + lançadas nos últimos 120
+    # dias. Antes era --recent 3, que corta por posição: em temporada de
+    # spoilers há várias coleções abertas ao mesmo tempo, e a 4ª nunca era
+    # atualizada até subir para o top 3.
+    {'key': 'seed_cards',   'interval_hours': 24, 'options': '--days 120'},
     {'key': 'seed_sets',    'interval_hours': 168, 'options': ''},
     {'key': 'seed_symbols', 'interval_hours': 720, 'options': ''},
 ]
+
+# Valores de `options` que já foram padrão em versões anteriores. Uma tarefa que
+# ainda esteja com um deles nunca foi personalizada pelo administrador, então
+# pode ser migrada para o padrão novo com segurança.
+PADROES_ANTIGOS = {
+    'seed_cards': {'--recent 3', '--recent 8'},
+}
 
 
 class Command(BaseCommand):
@@ -66,6 +76,21 @@ class Command(BaseCommand):
                 tarefa.agendar_proxima()
                 tarefa.save(update_fields=['next_run'])
                 self.stdout.write(f'  tarefa criada: {tarefa.get_key_display()}')
+                continue
+
+            # get_or_create não atualiza quem já existe: uma tarefa criada por
+            # uma versão anterior ficaria com o argumento antigo para sempre.
+            # Só migra se o valor ainda for um padrão antigo — se o
+            # administrador personalizou, a escolha dele é preservada.
+            antigos = PADROES_ANTIGOS.get(padrao['key'], set())
+            if tarefa.options.strip() in antigos and tarefa.options.strip() != padrao['options']:
+                anterior = tarefa.options
+                tarefa.options = padrao['options']
+                tarefa.save(update_fields=['options', 'updated_at'])
+                self.stdout.write(
+                    f'  {tarefa.get_key_display()}: argumentos atualizados '
+                    f'de "{anterior}" para "{padrao["options"]}"'
+                )
 
     def verificar(self):
         for tarefa in ScheduledTask.objects.all():
