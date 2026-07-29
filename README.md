@@ -5,9 +5,64 @@ Backend em Django REST + MySQL, frontend em Vue 3 (Vite), tudo containerizado.
 
 ---
 
+## Usando o MariaDB do host (sem container de banco)
+
+O `docker-compose.yml` não sobe um container de banco: `api`, `worker` e
+`adminer` se conectam ao MariaDB/MySQL **já instalado na máquina**, via
+`host.docker.internal`. Antes do primeiro `docker compose up`, prepare o
+MariaDB do host:
+
+### 1. Liberar conexões vindas do Docker
+
+Por padrão o MariaDB do Debian só aceita conexão de `127.0.0.1` — os
+containers nunca vão conseguir entrar, mesmo com usuário e senha certos.
+
+```bash
+sudo sed -i "s/^bind-address.*/bind-address = 0.0.0.0/" /etc/mysql/mariadb.conf.d/50-server.cnf
+sudo systemctl restart mariadb
+```
+
+(o caminho do arquivo pode variar por distro; `sudo find /etc -name "*.cnf" | xargs grep -l bind-address` acha o correto)
+
+### 2. Criar o banco, o usuário e o schema
+
+```bash
+sudo mysql -e "
+CREATE DATABASE IF NOT EXISTS mtg_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS 'mtg_ingest'@'%' IDENTIFIED BY 'mtgpass';
+GRANT ALL ON mtg_db.* TO 'mtg_ingest'@'%';
+FLUSH PRIVILEGES;
+SET GLOBAL group_concat_max_len=1000000;"
+
+sudo mysql mtg_db < docker/mysql/init/01-schema.sql
+```
+
+Troque `mtgpass` por uma senha de verdade e repita no `DB_PASSWORD` do `.env`.
+O `group_concat_max_len` não persiste após reiniciar o serviço; para deixar
+permanente, adicione `group_concat_max_len = 1000000` na seção `[mysqld]` do
+mesmo arquivo de configuração do bind-address.
+
+### 3. Firewall local (se houver)
+
+Se a máquina usa `ufw`/`iptables`, a rede de containers do Docker (tipicamente
+`172.17.0.0/16` ou `172.18.0.0/16` — confirme com `docker network inspect
+bridge`) precisa ter acesso à porta 3306. Numa instalação padrão sem regras
+restritivas isso já funciona; só ajuste se `wait_for_db` ficar tentando sem
+sucesso.
+
+### 4. Testar antes de subir o compose
+
+```bash
+mysql -h 127.0.0.1 -u mtg_ingest -p mtg_db -e "SHOW TABLES;"
+```
+
+Se isso conectar, o Docker também vai conseguir.
+
+---
+
 ## Subindo em localhost
 
-Pré-requisitos: Docker e Docker Compose.
+Pré-requisitos: Docker, Docker Compose e o MariaDB do host configurado acima.
 
 ```bash
 cp .env.example .env
@@ -18,16 +73,16 @@ docker compose up --build
 |----------|-------------------------|
 | Site     | http://localhost:8080   |
 | API      | http://localhost:8000/api/ |
-| MySQL    | localhost:3307          |
+| MariaDB  | localhost:3306 (do host, fora do compose) |
 | Adminer  | http://localhost:8081   |
 | Admin    | http://localhost:8000/admin/ |
 
-No Adminer, entre com **Servidor** `db`, usuário e senha iguais aos do `.env`
-(`DB_USER` / `DB_PASSWORD`) e base `mtg_db`.
+No Adminer, entre com **Servidor** `host.docker.internal`, usuário e senha
+iguais aos do `.env` (`DB_USER` / `DB_PASSWORD`) e base `mtg_db`.
 
-No primeiro boot o container da API aguarda o MySQL, aplica as migrations e
-importa as 8 coleções mais recentes do Scryfall (alguns minutos). Para pular a
-carga inicial, use `SEED_ON_START=0` no `.env`.
+No primeiro boot o container da API aguarda o MariaDB do host responder, aplica
+as migrations e importa as 8 coleções mais recentes do Scryfall (alguns
+minutos). Para pular a carga inicial, use `SEED_ON_START=0` no `.env`.
 
 ### Carregando mais cartas
 
@@ -47,7 +102,7 @@ docker compose exec api python manage.py seed_rules --file /app/MagicCompRules.t
 ```bash
 docker compose logs -f api      # acompanha a API
 docker compose down             # para tudo
-docker compose down -v          # para tudo e apaga o banco
+docker compose down -v          # para tudo (o banco não é afetado: vive no host)
 ```
 
 ---

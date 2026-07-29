@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-echo "==> [1/5] Aguardando o banco em ${DB_HOST:-db}:${DB_PORT:-3306}..."
+echo "==> [1/5] Aguardando o banco em ${DB_HOST:-host.docker.internal}:${DB_PORT:-3306}..."
 python manage.py wait_for_db --timeout "${DB_WAIT_TIMEOUT:-180}"
 
 echo "==> [2/5] Verificando o schema das tabelas legadas (cards, rules)..."

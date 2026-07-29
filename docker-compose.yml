@@ -1,30 +1,4 @@
 services:
-  db:
-    image: mysql:8.0
-    container_name: mtg-db
-    restart: unless-stopped
-    command:
-      - --character-set-server=utf8mb4
-      - --collation-server=utf8mb4_unicode_ci
-      # GROUP_CONCAT default (1024) truncava a lista de sets de cartas muito reimpressas
-      - --group-concat-max-len=1000000
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpass}
-      MYSQL_DATABASE: ${DB_NAME:-mtg_db}
-      MYSQL_USER: ${DB_USER:-mtg_ingest}
-      MYSQL_PASSWORD: ${DB_PASSWORD:-mtgpass}
-    volumes:
-      - mysql_data:/var/lib/mysql
-      - ./docker/mysql/init:/docker-entrypoint-initdb.d:ro
-    ports:
-      - "${DB_PORT_HOST:-3307}:3306"
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-rootpass}"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-      start_period: 30s
-
   api:
     build:
       context: ./api
@@ -36,8 +10,10 @@ services:
       JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-me}
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-*}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:8080,http://localhost:5173}
-      DB_HOST: db
-      DB_PORT: 3306
+      # host.docker.internal aponta para o host via a entrada extra_hosts
+      # abaixo; é o MariaDB já instalado na máquina, não um container.
+      DB_HOST: ${DB_HOST:-host.docker.internal}
+      DB_PORT: ${DB_PORT:-3306}
       DB_NAME: ${DB_NAME:-mtg_db}
       DB_USER: ${DB_USER:-mtg_ingest}
       DB_PASSWORD: ${DB_PASSWORD:-mtgpass}
@@ -46,9 +22,10 @@ services:
       SEED_RECENT_SETS: ${SEED_RECENT_SETS:-8}
     volumes:
       - scryfall_cache:/app/cache
-    depends_on:
-      db:
-        condition: service_healthy
+    extra_hosts:
+      # Faz host.docker.internal funcionar também no Linux (no Docker Desktop
+      # do Windows/Mac já funciona nativamente; esta linha é o que falta lá).
+      - "host.docker.internal:host-gateway"
     ports:
       - "${API_PORT:-8000}:8000"
 
@@ -62,8 +39,8 @@ services:
       DJANGO_DEBUG: ${DJANGO_DEBUG:-1}
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-dev-secret-change-me}
       JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-me}
-      DB_HOST: db
-      DB_PORT: 3306
+      DB_HOST: ${DB_HOST:-host.docker.internal}
+      DB_PORT: ${DB_PORT:-3306}
       DB_NAME: ${DB_NAME:-mtg_db}
       DB_USER: ${DB_USER:-mtg_ingest}
       DB_PASSWORD: ${DB_PASSWORD:-mtgpass}
@@ -71,20 +48,19 @@ services:
       SEED_PRICES: 0
     volumes:
       - scryfall_cache:/app/cache
-    depends_on:
-      db:
-        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   adminer:
     image: adminer:latest
     container_name: mtg-adminer
     restart: unless-stopped
     environment:
-      ADMINER_DEFAULT_SERVER: db
+      # Pré-preenche o campo "Servidor" do Adminer com o host correto
+      ADMINER_DEFAULT_SERVER: ${DB_HOST:-host.docker.internal}
       ADMINER_DESIGN: ${ADMINER_DESIGN:-dracula}
-    depends_on:
-      db:
-        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "${ADMINER_PORT:-8081}:8080"
 
@@ -102,5 +78,4 @@ services:
       - "${FRONT_PORT:-8080}:80"
 
 volumes:
-  mysql_data:
   scryfall_cache:
