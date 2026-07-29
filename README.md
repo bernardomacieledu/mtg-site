@@ -60,6 +60,51 @@ Se isso conectar, o Docker também vai conseguir.
 
 ---
 
+## Logs (Loki + Alloy + Grafana)
+
+Ferramenta separada do site, com login próprio — as credenciais do MTG Nexus
+não valem aqui. Guarda o histórico de logs de todos os containers do projeto
+e permite buscar depois, mesmo após um container reiniciar.
+
+| Componente | Papel |
+|---|---|
+| **Loki** | Armazena e indexa os logs |
+| **Alloy** | Lê os logs de cada container (via socket do Docker) e envia ao Loki |
+| **Grafana** | Interface web de busca, com login próprio |
+
+Acesse em `http://localhost:3001` (ou a porta definida em `GRAFANA_PORT`),
+com o usuário/senha do `.env` (`GRAFANA_ADMIN_USER`/`GRAFANA_ADMIN_PASSWORD`).
+O datasource do Loki já vem configurado — vá em **Explore**, selecione
+**Loki** e filtre por `{container="mtg-api"}` (troque pelo nome do container
+que quiser). Como o Alloy só encaminha containers deste projeto (ver abaixo),
+qualquer linha que chegar ao Loki já é do MTG Nexus; para ver tudo de uma vez,
+uma consulta que casa qualquer container coletado é:
+
+```
+{container=~".+"}
+```
+
+**Sobre o Promtail:** ele foi aposentado pela Grafana em 02/03/2026; por isso
+o coletor aqui é o **Alloy**, o substituto oficial — não use exemplos antigos
+da internet baseados em Promtail para esta stack.
+
+**Se o Grafana não mostrar nenhum log:** o filtro do Alloy (em
+`logging/alloy/config.alloy`) só coleta containers cujo *label*
+`com.docker.compose.project` seja `mtg-site` — valor que o Docker Compose
+deriva do nome da pasta do projeto. Se a pasta não se chamar `mtg-site` (ou
+`COMPOSE_PROJECT_NAME` estiver definido com outro valor), ajuste o `regex`
+nesse arquivo para o nome real do projeto. Confira com:
+
+```bash
+docker inspect mtg-api --format '{{ index .Config.Labels "com.docker.compose.project" }}'
+```
+
+Para depurar o pipeline de coleta em si, a interface do próprio Alloy fica em
+`http://localhost:12345` (`ALLOY_PORT`) — a aba **Components** mostra se ele
+está enxergando os containers esperados.
+
+---
+
 ## Subindo em localhost
 
 Pré-requisitos: Docker, Docker Compose e o MariaDB do host configurado acima.

@@ -1,0 +1,44 @@
+// Configuração do Grafana Alloy — coletor de logs (substitui o Promtail,
+// que chegou ao fim de vida em 02/03/2026: https://grafana.com/docs/alloy/).
+//
+// Descobre os containers do host via socket do Docker, filtra só os deste
+// projeto (label com.docker.compose.project=mtg-site — evita coletar logs de
+// outras stacks na mesma máquina) e envia para o Loki.
+
+discovery.docker "containers" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "15s"
+}
+
+discovery.relabel "mtg_site" {
+  targets = discovery.docker.containers.targets
+
+  // Mantém só os containers deste compose project.
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    regex         = "mtg-site"
+    action        = "keep"
+  }
+
+  // Docker prefixa o nome do container com "/" nos metadados — remove para
+  // o rótulo "container" ficar limpo (mtg-api, não /mtg-api).
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+}
+
+loki.source.docker "mtg_site" {
+  host             = "unix:///var/run/docker.sock"
+  targets          = discovery.relabel.mtg_site.output
+  relabel_rules    = discovery.relabel.mtg_site.rules
+  forward_to       = [loki.write.default.receiver]
+  refresh_interval = "15s"
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

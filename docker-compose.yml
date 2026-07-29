@@ -77,5 +77,61 @@ services:
     ports:
       - "${FRONT_PORT:-8080}:80"
 
+  # ── Logs (Loki + Alloy + Grafana) ────────────────────────────────────────
+  # Ferramenta separada do MTG Nexus, com login próprio (o do Grafana).
+  # Loki guarda o histórico; Alloy coleta os logs dos containers deste
+  # projeto; Grafana é a interface web de busca.
+
+  loki:
+    image: grafana/loki:3.3.0
+    container_name: mtg-loki
+    restart: unless-stopped
+    # Usa o local-config.yaml que já vem na imagem — evita depender de um
+    # schema de configuração próprio, que muda entre versões do Loki.
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - loki_data:/loki
+    # Sem publicar porta no host: só Alloy e Grafana precisam falar com ele,
+    # e ambos estão na mesma rede interna do compose.
+
+  alloy:
+    image: grafana/alloy:latest
+    container_name: mtg-alloy
+    restart: unless-stopped
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --server.http.listen-addr=0.0.0.0:12345
+    volumes:
+      - ./logging/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      # Interface própria do Alloy, útil para ver o estado do pipeline de
+      # coleta (Components) enquanto se depura a configuração.
+      - "${ALLOY_PORT:-12345}:12345"
+    depends_on:
+      - loki
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: mtg-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-changeme}
+      # Evita a tela de "crie um novo usuário" pedindo para trocar a senha
+      # padrão a cada login — quem administra troca pelo próprio Grafana
+      # quando quiser.
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./logging/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+    depends_on:
+      - loki
+
 volumes:
   scryfall_cache:
+  loki_data:
+  grafana_data:
