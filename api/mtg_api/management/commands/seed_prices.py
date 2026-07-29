@@ -144,8 +144,17 @@ class Command(BaseCommand):
         if not entrada:
             raise CommandError('Arquivo "default_cards" não encontrado no Scryfall.')
 
+        # A partir de 20/07/2026 o Scryfall só oferece jsonl_download_uri;
+        # download_uri fica como fallback para o formato antigo.
+        url = entrada.get('jsonl_download_uri') or entrada.get('download_uri')
+        if not url:
+            raise CommandError(
+                'Nenhum link de download encontrado no catálogo bulk-data '
+                '(nem jsonl_download_uri, nem download_uri).'
+            )
+
         tamanho = entrada.get('size', 0) / (1024 * 1024)
-        self.stdout.write(f'Baixando preços de {entrada["download_uri"]} (~{tamanho:.0f} MB)...')
+        self.stdout.write(f'Baixando preços de {url} (~{tamanho:.0f} MB)...')
 
         def decimal(valor):
             try:
@@ -154,7 +163,7 @@ class Command(BaseCommand):
                 return None
 
         lote, gravados, lidos = [], 0, 0
-        for carta in stream_bulk_cards(entrada['download_uri']):
+        for carta in stream_bulk_cards(url, content_type=entrada.get('content_type', '')):
             lidos += 1
             precos = carta.get('prices') or {}
             usd      = decimal(precos.get('usd'))

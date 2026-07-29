@@ -48,17 +48,19 @@ def get_json(url, retries=3):
     return {}
 
 
-def stream_bulk_cards(url):
+def stream_bulk_cards(url, content_type=''):
     """
-    Percorre o array JSON gigante do bulk sem carregá-lo inteiro na memória.
+    Percorre o arquivo bulk do Scryfall sem carregá-lo inteiro na memória.
 
-    Usa raw_decode sobre um buffer deslizante, então não depende do arquivo
-    estar formatado com um objeto por linha.
+    A partir de 20/07/2026 o Scryfall passou a servir só o formato JSONL
+    (uma linha = um objeto JSON, arquivo .jsonl.gz), aposentando o array JSON
+    único (.json) que existia antes — https://scryfall.com/blog (Two New Ways
+    to Sync Scryfall Data). Detecta o formato pelo Content-Type/URL e usa o
+    caminho certo; o parser do array antigo fica de reserva caso algum
+    ambiente ainda sirva o formato antigo.
     """
     import gzip
-    import io
 
-    decoder = json.JSONDecoder()
     request = urllib.request.Request(url, headers={**HEADERS, 'Accept-Encoding': 'gzip'})
 
     with urllib.request.urlopen(request, timeout=120) as response:
@@ -66,38 +68,71 @@ def stream_bulk_cards(url):
         if response.headers.get('Content-Encoding') == 'gzip' or url.endswith('.gz'):
             stream = gzip.GzipFile(fileobj=response)
 
-        reader = io.TextIOWrapper(stream, encoding='utf-8')
-        buffer = ''
-        started = False
+        is_jsonl = (
+            'ndjson' in content_type or 'jsonl' in content_type
+            or '.jsonl' in url or url.endswith('.jsonl.gz')
+        )
+        if is_jsonl:
+            yield from _stream_jsonl(stream)
+        else:
+            yield from _stream_json_array(stream)
+
+
+def _stream_jsonl(stream):
+    """Um objeto JSON por linha — o formato atual do Scryfall."""
+    import io
+    reader = io.TextIOWrapper(stream, encoding='utf-8')
+    for linha in reader:
+        linha = linha.strip()
+        if not linha:
+            continue
+        try:
+            yield json.loads(linha)
+        except json.JSONDecodeError:
+            continue  # linha corrompida/cortada: ignora e segue
+
+
+def _stream_json_array(stream):
+    """
+    Formato antigo (retirado em 20/07/2026): um array JSON gigante.
+
+    Usa raw_decode sobre um buffer deslizante, então não depende do arquivo
+    estar formatado com um objeto por linha.
+    """
+    import io
+    decoder = json.JSONDecoder()
+    reader = io.TextIOWrapper(stream, encoding='utf-8')
+    buffer = ''
+    started = False
+
+    while True:
+        chunk = reader.read(1 << 20)  # 1 MB
+        if not chunk:
+            break
+        buffer += chunk
+
+        if not started:
+            start = buffer.find('[')
+            if start == -1:
+                continue
+            buffer = buffer[start + 1:]
+            started = True
 
         while True:
-            chunk = reader.read(1 << 20)  # 1 MB
-            if not chunk:
-                break
-            buffer += chunk
-
-            if not started:
-                start = buffer.find('[')
-                if start == -1:
-                    continue
-                buffer = buffer[start + 1:]
-                started = True
-
-            while True:
-                buffer = buffer.lstrip()
-                if buffer[:1] in (',', ''):
-                    buffer = buffer[1:]
-                    if not buffer:
-                        break
-                    continue
-                if buffer[0] == ']':
-                    return
-                try:
-                    obj, end = decoder.raw_decode(buffer)
-                except ValueError:
-                    break  # objeto incompleto: espera o próximo chunk
-                buffer = buffer[end:]
-                yield obj
+            buffer = buffer.lstrip()
+            if buffer[:1] in (',', ''):
+                buffer = buffer[1:]
+                if not buffer:
+                    break
+                continue
+            if buffer[0] == ']':
+                return
+            try:
+                obj, end = decoder.raw_decode(buffer)
+            except ValueError:
+                break  # objeto incompleto: espera o próximo chunk
+            buffer = buffer[end:]
+            yield obj
 
 
 def card_row(card, apply_filters=True):
@@ -270,12 +305,22 @@ class Command(BaseCommand):
         if not entry:
             raise CommandError('Arquivo "default_cards" não encontrado no catálogo do Scryfall.')
 
+        # A partir de 20/07/2026 o Scryfall só oferece jsonl_download_uri
+        # (formato JSONL); download_uri fica como fallback para o formato
+        # antigo, caso algum dia volte a existir em algum ambiente.
+        url = entry.get('jsonl_download_uri') or entry.get('download_uri')
+        if not url:
+            raise CommandError(
+                'Nenhum link de download encontrado no catálogo bulk-data '
+                '(nem jsonl_download_uri, nem download_uri). O formato da API '
+                'do Scryfall pode ter mudado novamente.'
+            )
+
         size_mb = entry.get('size', 0) / (1024 * 1024)
-        self.stdout.write(f'Baixando {entry["download_uri"]} (~{size_mb:.0f} MB). '
-                          'Isso leva alguns minutos.')
+        self.stdout.write(f'Baixando {url} (~{size_mb:.0f} MB). Isso leva alguns minutos.')
 
         batch, imported, seen = [], 0, 0
-        for card in stream_bulk_cards(entry['download_uri']):
+        for card in stream_bulk_cards(url, content_type=entry.get('content_type', '')):
             seen += 1
             row = card_row(card)
             if row:
