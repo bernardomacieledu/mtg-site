@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f0d78c"/>
+      <stop offset="55%" stop-color="#b8860b"/>
+      <stop offset="100%" stop-color="#8a640a"/>
+    </linearGradient>
+    <linearGradient id="ale" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#e8a83c"/>
+      <stop offset="100%" stop-color="#b3701f"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="64" height="64" rx="10" fill="#120c06"/>
+
+  <!-- alça -->
+  <path d="M44 22 h5 a7 7 0 0 1 7 7 v6 a7 7 0 0 1 -7 7 h-5"
+        fill="none" stroke="url(#gold)" stroke-width="4"/>
+
+  <!-- corpo da caneca -->
+  <path d="M14 20 h30 v26 a4 4 0 0 1 -4 4 H18 a4 4 0 0 1 -4 -4 Z"
+        fill="#1c1409" stroke="url(#gold)" stroke-width="2.5"/>
+
+  <!-- cerveja -->
+  <path d="M17 26 h24 v18 a3 3 0 0 1 -3 3 H20 a3 3 0 0 1 -3 -3 Z" fill="url(#ale)"/>
+  <!-- bolhas -->
+  <circle cx="24" cy="34" r="1.3" fill="#f7dca0" opacity="0.8"/>
+  <circle cx="31" cy="39" r="1" fill="#f7dca0" opacity="0.7"/>
+  <circle cx="36" cy="31" r="1.2" fill="#f7dca0" opacity="0.75"/>
+
+  <!-- espuma -->
+  <path d="M15 26 q2 -6 6 -3 q2 -5 6.5 -2 q2.5 -4 6.5 -1 q3 -3.5 6.5 0 q3.5 -2 5.5 3
+           q1.5 3 -1 4.5 H16 q-2.5 -1.2 -1 -4.5 Z"
+        fill="#f4ead0"/>
+  <path d="M16 26.5 q1.5 -4 4.5 -2.3" fill="none" stroke="#e8dcc0" stroke-width="0.8" opacity="0.6"/>
+</svg>
