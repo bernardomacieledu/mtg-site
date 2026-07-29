@@ -1,8 +1,8 @@
 <template>
   <div class="auth-page">
     <div class="auth-box">
-      <div class="auth-emblem">⚜</div>
-      <h1 class="auth-title">MTG Nexus</h1>
+      <div class="auth-emblem">🍺</div>
+      <h1 class="auth-title">MTG BEERnas</h1>
       <p class="auth-sub">Grimório das Terras</p>
 
       <div class="auth-tabs">

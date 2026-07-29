@@ -3,9 +3,33 @@
     <nav class="navbar">
       <div class="nav-inner">
         <router-link to="/" class="nav-logo">
-          <div class="nav-logo-emblem">⚜</div>
+          <div class="nav-logo-emblem">
+            <svg viewBox="0 0 64 64" class="nav-logo-svg" aria-hidden="true">
+              <defs>
+                <linearGradient id="nav-gold" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#f0d78c"/>
+                  <stop offset="55%" stop-color="#b8860b"/>
+                  <stop offset="100%" stop-color="#8a640a"/>
+                </linearGradient>
+                <linearGradient id="nav-ale" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#e8a83c"/>
+                  <stop offset="100%" stop-color="#b3701f"/>
+                </linearGradient>
+              </defs>
+              <path d="M44 22 h5 a7 7 0 0 1 7 7 v6 a7 7 0 0 1 -7 7 h-5"
+                    fill="none" stroke="url(#nav-gold)" stroke-width="4"/>
+              <path d="M14 20 h30 v26 a4 4 0 0 1 -4 4 H18 a4 4 0 0 1 -4 -4 Z"
+                    fill="#1c1409" stroke="url(#nav-gold)" stroke-width="2.5"/>
+              <path d="M17 26 h24 v18 a3 3 0 0 1 -3 3 H20 a3 3 0 0 1 -3 -3 Z" fill="url(#nav-ale)"/>
+              <circle cx="24" cy="34" r="1.3" fill="#f7dca0" opacity="0.8"/>
+              <circle cx="31" cy="39" r="1" fill="#f7dca0" opacity="0.7"/>
+              <circle cx="36" cy="31" r="1.2" fill="#f7dca0" opacity="0.75"/>
+              <path d="M15 26 q2 -6 6 -3 q2 -5 6.5 -2 q2.5 -4 6.5 -1 q3 -3.5 6.5 0 q3.5 -2 5.5 3
+                       q1.5 3 -1 4.5 H16 q-2.5 -1.2 -1 -4.5 Z" fill="#f4ead0"/>
+            </svg>
+          </div>
           <div class="nav-title">
-            MTG Nexus
+            MTG BEERnas
             <span>Grimório das Terras</span>
           </div>
         </router-link>
@@ -125,10 +149,13 @@ onUnmounted(() => window.removeEventListener('scroll', onScroll))
   width: 46px; height: 46px;
   border: 2px solid var(--gold); border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  font-size: 1.4rem;
   background: radial-gradient(circle, rgba(184,134,11,0.2), transparent);
   box-shadow: 0 0 12px var(--glow-gold), inset 0 0 8px rgba(0,0,0,0.5);
   animation: pulse-glow 3s ease-in-out infinite;
+  overflow: hidden;
+}
+.nav-logo-svg {
+  width: 30px; height: 30px;
 }
 @keyframes pulse-glow {
   0%,100% { box-shadow: 0 0 12px var(--glow-gold), inset 0 0 8px rgba(0,0,0,.5); }
