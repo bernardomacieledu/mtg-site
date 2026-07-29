@@ -103,6 +103,23 @@ Para depurar o pipeline de coleta em si, a interface do próprio Alloy fica em
 `http://localhost:12345` (`ALLOY_PORT`) — a aba **Components** mostra se ele
 está enxergando os containers esperados.
 
+**Restrinja o acesso à sua rede local.** O `docker-compose.yml` publica as
+portas do Grafana e do Alloy sem diferenciar origem — quem restringe por
+sub-rede é o firewall do host, não o Docker. Ajuste `192.168.15.0/24` para a
+faixa real da sua rede:
+
+```bash
+ufw allow from 192.168.15.0/24 to any port 3001 proto tcp comment 'Grafana - rede local'
+ufw allow from 192.168.15.0/24 to any port 12345 proto tcp comment 'Alloy debug - rede local'
+ufw status verbose   # confere se entrou certo
+```
+
+Como o `ufw` já roda com política padrão de negar entrada, essas portas já
+ficariam bloqueadas de fora mesmo sem essa regra — ela existe para tornar a
+restrição explícita e documentada, em vez de depender de ninguém ter aberto
+a porta por engano (como aconteceu com outro serviço nesta mesma máquina,
+liberado para `Anywhere`).
+
 ---
 
 ## Subindo em localhost
