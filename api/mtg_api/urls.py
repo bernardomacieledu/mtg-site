@@ -1,6 +1,7 @@
 from django.urls import path
 
 from .views import (CardListView, CardImagesView, CollectionsView, SetDetailView,
+                    SetExportView,
                     RulesView, mana_symbols, sets_filter_list,
                     card_types_list, card_prices, health)
 from .game_views import create_game, get_game, game_action, list_decks
@@ -26,6 +27,7 @@ urlpatterns = [
     path('cards/prices/',       card_prices,              name='card-prices'),
     path('collections/',        CollectionsView.as_view(), name='collections'),
     path('collections/<str:code>/', SetDetailView.as_view(), name='collection-detail'),
+    path('collections/<str:code>/export/', SetExportView.as_view(), name='collection-export-json'),
     path('rules/',              RulesView.as_view(),      name='rules'),
     path('symbols/',            mana_symbols,             name='symbols'),
     path('sets/',               sets_filter_list,         name='sets'),

@@ -108,6 +108,12 @@
                   {{ set.unique_count.toLocaleString('pt-BR') }} cartas
                 </div>
               </div>
+              <button
+                class="set-export-btn"
+                title="Exportar coleção em JSON"
+                :disabled="exportando === set.code"
+                @click.stop="exportarSet(set)"
+              >{{ exportando === set.code ? '⏳' : '⬇' }}</button>
               <div class="set-tile-cta">Ver cartas ▸</div>
             </article>
           </div>
@@ -136,6 +142,12 @@
                 @error="markIconFailed(set.code)"
               />
               <div v-else class="set-monogram sm">{{ set.code.toUpperCase() }}</div>
+              <button
+                class="set-export-btn sm"
+                title="Exportar coleção em JSON"
+                :disabled="exportando === set.code"
+                @click.stop="exportarSet(set)"
+              >{{ exportando === set.code ? '⏳' : '⬇' }}</button>
               <div class="set-tile-body">
                 <h3 class="set-tile-name sm" :title="`${set.name} (${set.code.toUpperCase()})`">
                   {{ set.name }}
@@ -163,7 +175,7 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { getCollections } from '@/composables/api'
+import { getCollections, exportGameSet } from '@/composables/api'
 
 const router = useRouter()
 
@@ -209,6 +221,24 @@ function selectYear(value) {
 
 function openSet(set) {
   router.push({ name: 'cards', query: { set: set.code } })
+}
+
+const exportando = ref('')
+
+async function exportarSet(set) {
+  exportando.value = set.code
+  try {
+    const { data } = await exportGameSet(set.code)
+    const a = Object.assign(document.createElement('a'), {
+      href: URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })),
+      download: `colecao-${set.code}.json`,
+    })
+    a.click()
+  } catch (erro) {
+    alert('Não foi possível exportar esta coleção.')
+  } finally {
+    exportando.value = ''
+  }
 }
 
 const iconesQuebrados = ref(new Set())
@@ -303,6 +333,17 @@ onMounted(fetchSets)
   color: #0d1620; background: #9ec5e8;
   padding: 3px 7px; border-radius: 2px;
 }
+
+.set-export-btn {
+  position: absolute; top: 10px; right: 10px; z-index: 2;
+  width: 26px; height: 26px; padding: 0; line-height: 1;
+  background: rgba(0,0,0,0.5); border: 1px solid rgba(184,134,11,0.4);
+  border-radius: 3px; color: var(--gold); cursor: pointer; font-size: 0.85rem;
+  transition: all 0.2s;
+}
+.set-export-btn:hover:not(:disabled) { background: var(--gold); color: var(--obsidian); }
+.set-export-btn:disabled { opacity: 0.5; cursor: wait; }
+.set-export-btn.sm { top: 6px; right: 6px; width: 22px; height: 22px; font-size: 0.72rem; }
 
 .newest-badge {
   position: absolute; top: 10px; right: 10px;

@@ -3,10 +3,12 @@ auth_views.py — Autenticação JWT + CRUD de decks e coleções por usuário
 """
 import jwt
 import datetime
+import re
 from functools import wraps
 
 from django.contrib.auth.hashers import make_password, check_password
 from django.conf import settings
+from django.utils import timezone
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
@@ -310,6 +312,37 @@ def get_collection_by_id(request, collection_id):
     except UserCollection.DoesNotExist:
         return Response({'error': 'Coleção não encontrada.'}, status=404)
     return Response(_collection_payload(col))
+
+
+@api_view(['GET'])
+@jwt_required
+def export_collection_json(request, collection_id):
+    """
+    GET /api/auth/collections/<id>/export/
+    Exporta a coleção montada pelo usuário em JSON, com o conteúdo completo de
+    cada carta (já é o formato salvo em cards_json — não precisa buscar de novo).
+    """
+    try:
+        col = UserCollection.objects.get(id=collection_id, user=request.user_obj)
+    except UserCollection.DoesNotExist:
+        return Response({'error': 'Coleção não encontrada.'}, status=404)
+
+    payload = {
+        'collection_name': col.name,
+        'owner':           request.user_obj.username,
+        'exported_at':     timezone.now().isoformat(),
+        'stats':           col.stats_json,
+        'card_count':      len(col.cards_json or []),
+        'cards':           col.cards_json,
+    }
+
+    resposta = Response(payload)
+    # \w do Python casa letras acentuadas (ç, ã...), que não são válidas num
+    # cabeçalho HTTP — sem restringir a ASCII, o nome do arquivo quebrava o
+    # Content-Disposition.
+    nome_seguro = re.sub(r'[^A-Za-z0-9_\-]+', '_', col.name).strip('_') or f'colecao-{col.id}'
+    resposta['Content-Disposition'] = f'attachment; filename="{nome_seguro}.json"'
+    return resposta
 
 
 @api_view(['POST'])

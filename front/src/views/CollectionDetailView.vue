@@ -146,6 +146,7 @@ import { ref, computed, watch, onMounted, onUnmounted, defineComponent, h } from
 import { useRoute, useRouter } from 'vue-router'
 import api from '@/composables/api'
 import { useCollectionsStore } from '@/stores/collections'
+import { apiExportCollection } from '@/composables/api'
 
 const router = useRouter()
 const route  = useRoute()
@@ -322,6 +323,23 @@ const filteredByRarity = computed(() => {
 const filteredAll = computed(() => (collection.value.cards || []).filter(matchFilter))
 
 async function exportJson() {
+  const id = route.params.id
+  // Quando a coleção tem id salvo, busca fresca do servidor — não depende do
+  // que está carregado na tela no momento, e traz as estatísticas também.
+  if (id) {
+    try {
+      const { data } = await apiExportCollection(id)
+      const a = Object.assign(document.createElement('a'), {
+        href: URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })),
+        download: `${data.collection_name || 'colecao'}.json`,
+      })
+      a.click()
+      return
+    } catch {
+      // segue para o método antigo se o endpoint novo falhar por algum motivo
+    }
+  }
+
   const { data } = await api.post('/collection/export/', {
     name: collection.value.name, cards: collection.value.cards
   })

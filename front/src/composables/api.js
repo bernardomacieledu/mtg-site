@@ -66,6 +66,8 @@ export const apiGetCollection   = (id)      => api.get(`/auth/collections/${id}/
 export const apiSaveCollection  = (body)    => api.post('/auth/collections/save/', body)
 export const apiDeleteCollection = (id)     => api.delete(`/auth/collections/${id}/delete/`)
 export const apiRenameCollection = (id, name) => api.patch(`/auth/collections/${id}/rename/`, { name })
+export const apiExportCollection = (id)       => api.get(`/auth/collections/${id}/export/`)
+export const exportGameSet       = (code)     => api.get(`/collections/${code}/export/`)
 
 // ── Administração ───────────────────────────────────────────────────────────
 export const adminStatus     = ()            => api.get('/admin/status/')

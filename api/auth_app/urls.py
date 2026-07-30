@@ -18,6 +18,7 @@ urlpatterns = [
     path('collections/',                             views.list_collections,     name='collections-list'),
     path('collections/save/',                        views.save_collection_multi, name='collections-save'),
     path('collections/<int:collection_id>/',         views.get_collection_by_id, name='collections-get'),
+    path('collections/<int:collection_id>/export/',  views.export_collection_json, name='collections-export-json'),
     path('collections/<int:collection_id>/delete/',  views.delete_collection,    name='collections-delete'),
     path('collections/<int:collection_id>/rename/',  views.rename_collection,    name='collections-rename'),
     path('collections/<int:collection_id>/imgs/',    views.update_collection_imgs, name='collections-imgs'),

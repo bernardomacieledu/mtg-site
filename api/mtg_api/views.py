@@ -1,6 +1,7 @@
 import math
 from django.db import connection
 from django.db.models import Q
+from django.utils import timezone
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -410,6 +411,51 @@ class CardImagesView(APIView):
             })
 
         return Response({'name': name, 'images': images, 'usd_brl': cotacao})
+
+
+class SetExportView(APIView):
+    """
+    GET /api/collections/<code>/export/
+    Exporta todas as cartas de uma coleção (set) em JSON, com o conteúdo
+    completo de cada carta — não só nome/quantidade como as listas de deck.
+    """
+
+    def get(self, request, code):
+        code = (code or '').strip().lower()
+        with connection.cursor() as cur:
+            cur.execute("""
+                SELECT scryfall_id, name, mana_cost, cmc, type_line, oracle_text,
+                       rarity, image_url_normal, release_date, lang
+                FROM cards
+                WHERE set_code = %s AND image_url_normal IS NOT NULL
+                ORDER BY name
+            """, [code])
+            colunas = ['scryfall_id', 'name', 'mana_cost', 'cmc', 'type_line',
+                      'oracle_text', 'rarity', 'image_url', 'release_date', 'lang']
+            cartas = []
+            for linha in cur.fetchall():
+                item = dict(zip(colunas, linha))
+                item['cmc'] = float(item['cmc']) if item['cmc'] is not None else None
+                item['release_date'] = str(item['release_date']) if item['release_date'] else None
+                cartas.append(item)
+
+        if not cartas:
+            return Response({'error': 'Coleção não encontrada ou sem cartas.'}, status=404)
+
+        info = get_set_names().get(code, {})
+        payload = {
+            'set_code':    code,
+            'set_name':    info.get('name', code),
+            'released_at': info.get('released_at', ''),
+            'exported_at': timezone.now().isoformat(),
+            'card_count':  len(cartas),
+            'cards':       cartas,
+        }
+
+        resposta = Response(payload)
+        nome_arquivo = f'colecao-{code}.json'
+        resposta['Content-Disposition'] = f'attachment; filename="{nome_arquivo}"'
+        return resposta
 
 
 class CollectionsView(APIView):
