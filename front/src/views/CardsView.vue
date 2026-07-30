@@ -23,9 +23,18 @@
           <em v-if="activeFilters.set && setName"> · {{ setName }}</em>
           <em v-if="activeFilters.type"> · {{ activeFilters.type }}</em>
         </span>
-        <span class="results-info">
-          Página <strong>{{ page }}</strong> / <strong>{{ totalPages }}</strong>
-        </span>
+        <div class="results-right">
+          <button
+            v-if="activeFilters.set"
+            class="btn-ghost export-set-btn"
+            :disabled="exportando"
+            :title="`Exportar toda a coleção ${setName || activeFilters.set} em JSON`"
+            @click="exportarColecaoAtual"
+          >{{ exportando ? '⏳ Exportando...' : '⬇ Exportar coleção (JSON)' }}</button>
+          <span class="results-info">
+            Página <strong>{{ page }}</strong> / <strong>{{ totalPages }}</strong>
+          </span>
+        </div>
       </div>
 
       <div v-if="loading" class="spinner-wrap">
@@ -52,7 +61,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { getCards, getSets } from '@/composables/api'
+import { getCards, getSets, exportGameSet } from '@/composables/api'
 import CardItem   from '@/components/CardItem.vue'
 import SearchBar  from '@/components/SearchBar.vue'
 import Pagination from '@/components/Pagination.vue'
@@ -67,6 +76,7 @@ const totalPages   = ref(1)
 const page         = ref(1)
 const loading      = ref(false)
 const loadError    = ref('')
+const exportando   = ref(false)
 const activeFilters = reactive({})
 
 // Parâmetros aceitos na URL e repassados à API.
@@ -113,6 +123,24 @@ async function fetchSets() {
   try { const { data } = await getSets(); sets.value = data.sets } catch {}
 }
 
+async function exportarColecaoAtual() {
+  const code = activeFilters.set
+  if (!code) return
+  exportando.value = true
+  try {
+    const { data } = await exportGameSet(code)
+    const a = Object.assign(document.createElement('a'), {
+      href: URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })),
+      download: `colecao-${code}.json`,
+    })
+    a.click()
+  } catch (erro) {
+    alert('Não foi possível exportar esta coleção.')
+  } finally {
+    exportando.value = false
+  }
+}
+
 function onSearch(filters) {
   // Só atualiza a URL: o watch abaixo é a única origem de fetch.
   // Antes o onSearch buscava E trocava a query, disparando duas requisições.
@@ -153,7 +181,9 @@ onMounted(() => {
 .cards-grid-enter-active { transition: opacity 0.4s ease, transform 0.4s ease; }
 .cards-grid-enter-from   { opacity: 0; transform: translateY(18px); }
 .cards-grid-move         { transition: transform 0.4s ease; }
-.results-bar  { display:flex; align-items:center; justify-content:space-between; margin-bottom:1.4rem; }
+.results-bar   { display:flex; align-items:center; justify-content:space-between; margin-bottom:1.4rem; flex-wrap:wrap; gap:10px; }
+.results-right { display:flex; align-items:center; gap:14px; }
+.export-set-btn { font-size:0.66rem; padding:6px 12px; white-space:nowrap; }
 .results-info { font-family:'Cinzel',serif; font-size:0.72rem; letter-spacing:2px; color:var(--parchment-xdk); }
 .results-info strong { color:var(--gold); }
 .load-error   { text-align:center; padding:2.4rem 1rem; color:#e8b0b0; background:rgba(120,40,40,0.12); border:1px solid rgba(200,90,90,0.3); border-radius:3px; }
