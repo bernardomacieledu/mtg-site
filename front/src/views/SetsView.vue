@@ -51,6 +51,12 @@
               @click="openSet(set)"
             >
               <span class="upcoming-badge">{{ daysUntil(set.released_at) }}</span>
+              <button
+                class="set-export-btn upcoming-export"
+                title="Exportar cartas reveladas até agora, em JSON"
+                :disabled="exportando === set.code"
+                @click.stop="exportarSet(set)"
+              >{{ exportando === set.code ? '⏳' : '⬇' }}</button>
               <img
                 v-if="hasIcon(set)"
                 :src="set.icon_svg_uri"
@@ -344,6 +350,9 @@ onMounted(fetchSets)
 .set-export-btn:hover:not(:disabled) { background: var(--gold); color: var(--obsidian); }
 .set-export-btn:disabled { opacity: 0.5; cursor: wait; }
 .set-export-btn.sm { top: 6px; right: 6px; width: 22px; height: 22px; font-size: 0.72rem; }
+/* O tile "upcoming" já tem o selo "EM X DIAS" no canto direito — o botão
+   vai para o esquerdo, senão os dois se sobrepõem. */
+.set-export-btn.upcoming-export { left: 10px; right: auto; }
 
 .newest-badge {
   position: absolute; top: 10px; right: 10px;
